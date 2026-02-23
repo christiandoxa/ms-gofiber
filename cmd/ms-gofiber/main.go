@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -12,15 +13,37 @@ import (
 	"ms-gofiber/internal/config"
 )
 
+type server interface {
+	Listen(addr string) error
+	ShutdownWithContext(ctx context.Context) error
+}
+
+var (
+	loadConfig = config.Load
+	buildApp   = func(cfg *config.Config) (server, func(), error) {
+		return app.Build(cfg)
+	}
+	notifySignal = signal.Notify
+	withTimeout  = context.WithTimeout
+	runMain      = run
+	fatalf       = log.Fatalf
+)
+
 func main() {
-	cfg, err := config.Load()
+	if err := runMain(); err != nil {
+		fatalf("%v", err)
+	}
+}
+
+func run() error {
+	cfg, err := loadConfig()
 	if err != nil {
-		log.Fatalf("config load error: %v", err)
+		return fmt.Errorf("config load error: %w", err)
 	}
 
-	fbApp, closer, err := app.Build(cfg)
+	fbApp, closer, err := buildApp(cfg)
 	if err != nil {
-		log.Fatalf("app build error: %v", err)
+		return fmt.Errorf("app build error: %w", err)
 	}
 	defer func() {
 		if closer != nil {
@@ -28,24 +51,31 @@ func main() {
 		}
 	}()
 
+	listenErr := make(chan error, 1)
 	go func() {
 		log.Printf("server starting at %s", cfg.ListenAddr())
-		if err := fbApp.Listen(cfg.ListenAddr()); err != nil {
-			log.Fatalf("fiber listen error: %v", err)
-		}
+		listenErr <- fbApp.Listen(cfg.ListenAddr())
 	}()
 
 	// graceful shutdown
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	notifySignal(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-listenErr:
+		if err != nil {
+			return fmt.Errorf("fiber listen error: %w", err)
+		}
+	case <-quit:
+	}
 
 	log.Println("shutdown signal received")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := withTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := fbApp.ShutdownWithContext(ctx); err != nil {
-		log.Printf("fiber shutdown error: %v", err)
+		return fmt.Errorf("fiber shutdown error: %w", err)
 	}
 	log.Println("server gracefully stopped")
+	return nil
 }

@@ -9,17 +9,17 @@ CREATE TABLE IF NOT EXISTS todos
     NOT
     NULL,
     completed
-    BOOLEAN
+    INTEGER
     NOT
     NULL
     DEFAULT
-    FALSE,
+    0,
     created_at
-    TIMESTAMPTZ
+    TEXT
     NOT
     NULL,
     updated_at
-    TIMESTAMPTZ
+    TEXT
     NOT
     NULL
 );

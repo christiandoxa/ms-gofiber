@@ -13,6 +13,12 @@ import (
 	"go.elastic.co/apm/module/apmhttp/v2"
 )
 
+var (
+	newHTTPRequest = http.NewRequest
+	wrapHTTPClient = apmhttp.WrapClient
+	logFiberClient = welog.LogFiberClient
+)
+
 func Do(
 	c *fiber.Ctx,
 	method, url, contentType string,
@@ -25,7 +31,7 @@ func Do(
 		timeout = 10 * time.Second
 	}
 
-	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	req, err := newHTTPRequest(method, url, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, nil, err
 	}
@@ -51,7 +57,7 @@ func Do(
 	start := time.Now()
 
 	// http client dengan APM instrumentation
-	httpClient := apmhttp.WrapClient(&http.Client{Timeout: timeout})
+	httpClient := wrapHTTPClient(&http.Client{Timeout: timeout})
 	res, err := httpClient.Do(req)
 
 	var resModel model.TargetResponse
@@ -62,7 +68,7 @@ func Do(
 			Status:  0,
 			Latency: time.Since(start),
 		}
-		welog.LogFiberClient(c, reqModel, resModel)
+		logFiberClient(c, reqModel, resModel)
 		return 0, nil, nil, err
 	}
 	defer func(Body io.ReadCloser) {
@@ -83,7 +89,7 @@ func Do(
 		Status:  res.StatusCode,
 		Latency: time.Since(start),
 	}
-	welog.LogFiberClient(c, reqModel, resModel)
+	logFiberClient(c, reqModel, resModel)
 	return status, respBody, respHeader, nil
 }
 

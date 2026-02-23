@@ -17,9 +17,7 @@ type Config struct {
 	AppReadTimeout  int
 	AppWriteTimeout int
 
-	PGUrl     string
-	PGMaxConn int32
-	PGMinConn int32
+	SQLitePath string
 
 	RedisAddr       string
 	RedisDB         int
@@ -39,9 +37,7 @@ func Load() (*Config, error) {
 		AppReadTimeout:  getint("APP_READ_TIMEOUT_SEC", 10),
 		AppWriteTimeout: getint("APP_WRITE_TIMEOUT_SEC", 10),
 
-		PGUrl:     getenv("PG_URL", "postgres://postgres:postgres@localhost:5432/ms_gofiber?sslmode=disable"),
-		PGMaxConn: int32(getint("PG_MAX_CONNS", 10)),
-		PGMinConn: int32(getint("PG_MIN_CONNS", 2)),
+		SQLitePath: getenv("SQLITE_PATH", "data/ms-gofiber.db"),
 
 		RedisAddr:       getenv("REDIS_ADDR", "localhost:6379"),
 		RedisDB:         getint("REDIS_DB", 0),

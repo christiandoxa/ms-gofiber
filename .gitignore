@@ -51,3 +51,11 @@ Thumbs.db
 # env file
 .env
 vendor/
+
+# SQLite artifacts
+*.db
+*.sqlite
+*.sqlite3
+data/ms-gofiber.db
+
+coverage.out

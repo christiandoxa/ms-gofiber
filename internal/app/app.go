@@ -10,21 +10,20 @@ import (
 	"github.com/christiandoxa/welog"
 	"go.elastic.co/apm/module/apmfiber/v2"
 
-	redisadapter "ms-gofiber/internal/adapter/cache/redis"
-	"ms-gofiber/internal/adapter/repository/postgres"
+	"ms-gofiber/internal/app/adapter/controller"
+	redisadapter "ms-gofiber/internal/app/adapter/repository/redis"
+	sqliteadapter "ms-gofiber/internal/app/adapter/repository/sqlite"
+	todousecase "ms-gofiber/internal/app/application/usecase"
 	"ms-gofiber/internal/config"
 	"ms-gofiber/internal/middleware"
-	"ms-gofiber/internal/transport/http"
-	"ms-gofiber/internal/transport/http/handlers"
-	todousecase "ms-gofiber/internal/usecase/todo"
 	"ms-gofiber/internal/validator"
 	"ms-gofiber/pkg/cache"
 	"ms-gofiber/pkg/db"
 )
 
 func Build(cfg *config.Config) (*fiber.App, func(), error) {
-	// Postgres (APM instrument di pkg/db)
-	pool, err := db.NewPostgresPool(context.Background(), cfg)
+	// SQLite
+	sqliteDB, err := db.NewSQLiteDB(context.Background(), cfg)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -65,20 +64,20 @@ func Build(cfg *config.Config) (*fiber.App, func(), error) {
 	app.Use(middleware.ExternalIDGuard(redisClient, time.Duration(cfg.RedisDefaultTTL)*time.Second, skippedPaths))
 
 	// Dependency wiring
-	todoRepo := postgres.NewTodoRepo(pool)
-	todoCache := redisadapter.NewTodoCache(redisClient)
-	todoSvc := todousecase.NewService(todoRepo, todoCache, time.Duration(cfg.RedisDefaultTTL)*time.Second)
-	todoHandler := handlers.NewTodoHandler(todoSvc, validate)
-	internalHandler := handlers.NewInternalHandler()
-	validationHandler := handlers.NewValidationHandler(validate)
+	todoRepo := sqliteadapter.NewTodo(sqliteDB)
+	todoCache := redisadapter.NewTodo(redisClient)
+	todoUC := todousecase.NewTodo(todoRepo, todoCache, time.Duration(cfg.RedisDefaultTTL)*time.Second)
+	todoController := controller.NewTodo(todoUC, validate)
+	internalController := controller.NewInternal()
+	validationController := controller.NewValidation(validate)
 
 	// Router
-	router := http.NewRouter(app, todoHandler, internalHandler, validationHandler)
+	router := controller.NewRouter(app, todoController, internalController, validationController)
 	router.RegisterRoutes()
 
 	// closer
 	closer := func() {
-		pool.Close()
+		_ = sqliteDB.Close()
 		_ = redisClient.Close()
 	}
 	return app, closer, nil

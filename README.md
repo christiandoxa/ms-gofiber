@@ -1,8 +1,8 @@
 # ms-gofiber — Go Fiber Boilerplate
 
 A production-ready **Go Fiber** boilerplate focused on **clean architecture + DDD**, **first-class observability** (
-Elastic **APM** end-to-end), structured **logging** with **welog**, **PostgreSQL (pgx/v5)**, **Redis (go-redis/v9)**,
-and a **validator** layer with both field-level and struct-level custom rules.
+Elastic **APM** end-to-end), structured **logging** with **welog**, **SQLite**, **Redis (go-redis/v9)**, and a
+**validator** layer with both field-level and struct-level custom rules.
 It also includes a **mandatory self-hit** outbound client example that logs with welog and traces with APM.
 
 ---
@@ -12,11 +12,12 @@ It also includes a **mandatory self-hit** outbound client example that logs with
 * **Fiber v2** web server with sane defaults.
 * **Observability by default**
 
-    * **Elastic APM**: inbound (Fiber), outbound HTTP, Postgres (pgx/v5), and Redis (via custom hook) — everything
+  * **Elastic APM**: inbound (Fiber), outbound HTTP, SQLite repository spans, and Redis (via custom hook) —
+    everything
       carrying a `context.Context` is traced.
     * **welog**: request/response logging middleware + per-request logger in `c.Locals("logger")`, and **client logs**
       via `welog.LogFiberClient(...)`.
-* **Postgres (pgx/v5)** pool with APM instrumentation.
+* **SQLite** database (`modernc.org/sqlite`) with auto schema bootstrap.
 * **Redis (go-redis/v9)** client with APM hook (`ProcessHook`, `ProcessPipelineHook`, `DialHook`).
 * **Validation** with go-playground/validator:
 
@@ -25,8 +26,8 @@ It also includes a **mandatory self-hit** outbound client example that logs with
     * **Rule registration model** mirrors your provided pattern.
 * **Response remapping via map** (no `switch`) for consistent API envelopes.
 * **Self-hit endpoint** demonstrating outbound HTTP with APM + welog client logging.
-* **Clean architecture** layering inspired by Fiber recipe: `domain` (entities + ports) → `usecase` (application
-  service) → `transport/http` (handler/routes/presenter), with infra in `adapter`.
+* **Clean architecture** layering ala `goilerplate`: `internal/app/domain` → `internal/app/application/usecase` →
+  `internal/app/adapter`.
 
 ---
 
@@ -34,8 +35,8 @@ It also includes a **mandatory self-hit** outbound client example that logs with
 
 * Go `1.22+`
 * Fiber `v2`
-* Elastic APM modules (`apmfiber`, `apmhttp`, `apmpgxv5`)
-* pgx/v5 (with pgxpool)
+* Elastic APM modules (`apmfiber`, `apmhttp`)
+* SQLite (`modernc.org/sqlite`)
 * go-redis/v9
 * welog
 * validator/v10
@@ -57,27 +58,19 @@ ms-gofiber/
 │  └─ ms-gofiber/
 │     └─ main.go
 ├─ internal/
-│  ├─ app/                 # build Fiber app (middlewares, DI, router)
+│  ├─ app/
+│  │  ├─ adapter/          # controller + presenter + repository impl
+│  │  ├─ application/      # usecase layer
+│  │  └─ domain/           # entities + repository interfaces
 │  ├─ config/              # config loader (.env via godotenv)
 │  ├─ dto/                 # request DTOs validated with validator
-│  ├─ domain/
-│  │  └─ todo/             # entity + repository port + domain errors
-│  ├─ usecase/
-│  │  └─ todo/             # application service/use case
-│  ├─ adapter/
-│  │  ├─ cache/
-│  │  │  └─ redis/         # redis cache adapter
-│  │  └─ repository/
-│  │     └─ postgres/      # pgx/v5 repository implementation
 │  ├─ middleware/          # global middlewares (error, headers, request id)
-│  ├─ transport/
-│  │  └─ http/             # router + handlers + presenter + routes
 │  └─ validator/           # custom rules: plainbase + structbase + register
 ├─ pkg/
 │  ├─ apmredis/            # Redis APM hook (trace all commands)
 │  ├─ apperror/            # typed app errors
 │  ├─ cache/               # Redis client construction
-│  ├─ db/                  # Postgres pool construction (APM'd)
+│  ├─ db/                  # SQLite connection + schema bootstrap
 │  ├─ httpx/               # APM-wrapped HTTP client + welog client logs
 │  └─ respond/             # response envelope + code→HTTP map
 ```
@@ -89,7 +82,7 @@ ms-gofiber/
 ### Prerequisites
 
 * Go `1.22+`
-* PostgreSQL & Redis
+* SQLite & Redis
 * (Optional) Elastic APM Server if you want tracing visualized
 
 ### 1) Configure environment
@@ -103,7 +96,7 @@ cp .env.example .env
 Important keys (see `.env.example`):
 
 * **Server**: `APP_HOST`, `APP_PORT`, `APP_READ_TIMEOUT_SEC`, `APP_WRITE_TIMEOUT_SEC`
-* **Postgres**: `PG_URL`, `PG_MAX_CONNS`, `PG_MIN_CONNS`
+* **SQLite**: `SQLITE_PATH`
 * **Redis**: `REDIS_ADDR`, `REDIS_DB`, `REDIS_PASSWORD`, `REDIS_DEFAULT_TTL_SEC`
 * **Elastic APM**: `ELASTIC_APM_SERVER_URL`, `ELASTIC_APM_SERVICE_NAME`, `ELASTIC_APM_ENVIRONMENT`, etc.
 
@@ -117,8 +110,12 @@ go mod tidy
 
 ### 3) Prepare database
 
+Schema akan dibuat otomatis saat aplikasi start.
+
+Opsional, jika ingin inisialisasi manual:
+
 ```bash
-psql "$PG_URL" -f sql/schema.sql
+sqlite3 data/ms-gofiber.db < sql/schema.sql
 ```
 
 ### 4) Run the service
@@ -323,7 +320,7 @@ var customStructRules = []fiber.Map{
 * **Inbound**: `apmfiber.Middleware()` creates a transaction for each HTTP request (and recovers panics).
 * **Outbound HTTP**: `apmhttp.WrapClient(...)` automatically creates spans for downstream calls (context propagated from
   `c.UserContext()`).
-* **Postgres**: `apmpgxv5.Instrument(...)` instruments pgx/v5; queries executed with the request context are traced.
+* **SQLite**: operasi repository dibungkus span APM (`TodoRepo.*`) dengan context request.
 * **Redis**: Custom **hook** creates spans for `ProcessHook`, `ProcessPipelineHook`, and `DialHook`.
 
 > Ensure your APM environment variables are set (see `.env.example`).
@@ -334,11 +331,10 @@ var customStructRules = []fiber.Map{
 
 ## Clean Architecture / DDD
 
-* **Domain** (`internal/domain`): entities + repository ports + domain-level errors, tanpa ketergantungan framework.
-* **Usecase** (`internal/usecase`): business flow aplikasi, orkestrasi repo + cache melalui interface.
-* **Adapters** (`internal/adapter/...`): implementasi konkret DB/cache untuk memenuhi port/usecase.
-* **Transport** (`internal/transport/http`): handlers + routes + presenter, untuk parsing request dan formatting
-  response.
+* **Domain** (`internal/app/domain`): entities + repository ports + domain-level errors, tanpa ketergantungan framework.
+* **Application** (`internal/app/application/usecase`): business flow aplikasi, orkestrasi repository/cache via
+  interface.
+* **Adapter** (`internal/app/adapter`): Fiber controller, presenter, serta implementasi repository (SQLite/Redis).
 * **Cross-cutting** (`pkg/...`): DB/Redis constructors, APM hooks, HTTP client, response mapping, app errors.
 
 ---
@@ -355,9 +351,7 @@ APP_PORT=8080
 APP_READ_TIMEOUT_SEC=10
 APP_WRITE_TIMEOUT_SEC=10
 
-PG_URL=postgres://postgres:postgres@localhost:5432/ms_gofiber?sslmode=disable
-PG_MAX_CONNS=10
-PG_MIN_CONNS=2
+SQLITE_PATH=data/ms-gofiber.db
 
 REDIS_ADDR=localhost:6379
 REDIS_DB=0
@@ -375,8 +369,8 @@ ELASTIC_APM_RECORDING=true
 
 ## Extending
 
-* **New domain**: create `internal/domain/<name>` (entity + repository port), lanjutkan `internal/usecase/<name>`, lalu
-  implement adapter(s) di `internal/adapter` dan expose lewat handlers + routes.
+* **New domain**: create entity + repository interface di `internal/app/domain`, lanjutkan usecase di
+  `internal/app/application/usecase`, lalu implement adapter di `internal/app/adapter`.
 * **New validators**: implement in `internal/validator/rule/plainbase` or `structbase`, register in
   `internal/validator/rule/register.go`.
 * **New outbound client**: add helper in `pkg/httpx` or a domain-specific gateway; always pass `c.UserContext()` and log
@@ -390,7 +384,7 @@ ELASTIC_APM_RECORDING=true
   `c.UserContext()`.
 * **No welog client logs**: confirm `welog.NewFiber(...)` is mounted and your outbound path calls
   `welog.LogFiberClient(...)` (already wired in `pkg/httpx` and self-hit).
-* **DB errors**: ensure the schema is loaded (`sql/schema.sql`) and `PG_URL` is reachable.
+* **DB errors**: pastikan `SQLITE_PATH` valid dan proses punya izin write ke folder target.
 * **Redis errors**: verify `REDIS_ADDR` and permissions.
 * **Validation errors**: see `fields` object in the error envelope for tag names.
 

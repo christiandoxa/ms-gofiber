@@ -15,6 +15,10 @@ type requestValidator interface {
 	ValidateStruct(any) error
 }
 
+var reqHeaderParser = func(c *fiber.Ctx, out *dto.RequestHeader) error {
+	return c.ReqHeaderParser(out)
+}
+
 func defaultSkippedPaths() map[string]struct{} {
 	return map[string]struct{}{
 		"/v1/health":           {},
@@ -34,7 +38,7 @@ func HeaderGuard(validate requestValidator, skippedPaths map[string]struct{}) fi
 		}
 
 		var header dto.RequestHeader
-		if err := c.ReqHeaderParser(&header); err != nil {
+		if err := reqHeaderParser(c, &header); err != nil {
 			logMiddlewareError(c, err)
 			return apperror.New(apperror.ErrBadRequest, "invalid request headers")
 		}
