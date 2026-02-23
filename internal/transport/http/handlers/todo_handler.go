@@ -7,19 +7,25 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.elastic.co/apm/v2"
 
-	"ms-gofiber/internal/domain/todo"
+	tododomain "ms-gofiber/internal/domain/todo"
 	"ms-gofiber/internal/dto"
+	"ms-gofiber/internal/transport/http/presenter"
+	todousecase "ms-gofiber/internal/usecase/todo"
 	"ms-gofiber/internal/validator"
 	"ms-gofiber/pkg/apperror"
 	"ms-gofiber/pkg/respond"
 )
 
 type TodoHandler struct {
-	svc      todo.Service
-	validate *validator.StructValidator
+	svc      todousecase.Service
+	validate RequestValidator
 }
 
-func NewTodoHandler(svc todo.Service, v *validator.StructValidator) *TodoHandler {
+type RequestValidator interface {
+	ValidateStruct(any) error
+}
+
+func NewTodoHandler(svc todousecase.Service, v RequestValidator) *TodoHandler {
 	return &TodoHandler{svc: svc, validate: v}
 }
 
@@ -38,12 +44,12 @@ func (h *TodoHandler) Create(c *fiber.Ctx) error {
 		return err
 	}
 
-	t := &todo.Todo{Title: req.Title, Completed: req.Completed}
+	t := &tododomain.Todo{Title: req.Title, Completed: req.Completed}
 	out, err := h.svc.Create(ctx, t)
 	if err != nil {
 		return err
 	}
-	return c.Status(fiber.StatusCreated).JSON(respond.SuccessEnvelope(out, nil))
+	return c.Status(fiber.StatusCreated).JSON(respond.SuccessEnvelope(presenter.TodoData(out), nil))
 }
 
 func (h *TodoHandler) Get(c *fiber.Ctx) error {
@@ -56,11 +62,11 @@ func (h *TodoHandler) Get(c *fiber.Ctx) error {
 		return apperror.New(apperror.ErrBadRequest, "missing id")
 	}
 
-	out, err := h.svc.Get(ctx, todo.ID(id))
+	out, err := h.svc.Get(ctx, tododomain.ID(id))
 	if err != nil {
 		return err
 	}
-	return c.JSON(respond.SuccessEnvelope(out, nil))
+	return c.JSON(respond.SuccessEnvelope(presenter.TodoData(out), nil))
 }
 
 func (h *TodoHandler) List(c *fiber.Ctx) error {
@@ -77,7 +83,7 @@ func (h *TodoHandler) List(c *fiber.Ctx) error {
 		return err
 	}
 	meta := map[string]any{"limit": limit, "offset": offset, "ts": time.Now().UTC()}
-	return c.JSON(respond.SuccessEnvelope(out, meta))
+	return c.JSON(respond.SuccessEnvelope(presenter.TodoListData(out), meta))
 }
 
 func (h *TodoHandler) Update(c *fiber.Ctx) error {
@@ -99,12 +105,12 @@ func (h *TodoHandler) Update(c *fiber.Ctx) error {
 		return err
 	}
 
-	t := &todo.Todo{ID: todo.ID(id), Title: req.Title, Completed: req.Completed}
+	t := &tododomain.Todo{ID: tododomain.ID(id), Title: req.Title, Completed: req.Completed}
 	out, err := h.svc.Update(ctx, t)
 	if err != nil {
 		return err
 	}
-	return c.JSON(respond.SuccessEnvelope(out, nil))
+	return c.JSON(respond.SuccessEnvelope(presenter.TodoData(out), nil))
 }
 
 func (h *TodoHandler) Delete(c *fiber.Ctx) error {
@@ -116,7 +122,7 @@ func (h *TodoHandler) Delete(c *fiber.Ctx) error {
 	if id == "" {
 		return apperror.New(apperror.ErrBadRequest, "missing id")
 	}
-	if err := h.svc.Delete(ctx, todo.ID(id)); err != nil {
+	if err := h.svc.Delete(ctx, tododomain.ID(id)); err != nil {
 		return err
 	}
 	return c.Status(fiber.StatusNoContent).Send(nil)

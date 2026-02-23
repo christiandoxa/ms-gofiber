@@ -21,3 +21,12 @@ func TodoUpsertStructRule(sl validator.StructLevel) {
 		sl.ReportError(req.Title, "Title", "Title", "xnotblank", "")
 	}
 }
+
+func PrepareExampleStructRule(sl validator.StructLevel) {
+	req, ok := sl.Current().Interface().(dto.PrepareExampleRequest)
+	if !ok {
+		return
+	}
+
+	checkOsType(sl, req.TerminalType, req.OsType, req.OsVersion)
+}

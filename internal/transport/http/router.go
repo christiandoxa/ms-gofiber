@@ -1,49 +1,40 @@
 package http
 
 import (
-	"time"
-
 	"github.com/gofiber/fiber/v2"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 
-	"ms-gofiber/internal/adapter/repository/postgres"
-	"ms-gofiber/internal/domain/todo"
 	"ms-gofiber/internal/transport/http/handlers"
-	"ms-gofiber/internal/validator"
+	"ms-gofiber/internal/transport/http/routes"
 )
 
 type Router struct {
-	app      *fiber.App
-	pool     *pgxpool.Pool
-	redis    *redis.Client
-	validate *validator.StructValidator
+	app               *fiber.App
+	todoHandler       *handlers.TodoHandler
+	internalHandler   *handlers.InternalHandler
+	validationHandler *handlers.ValidationHandler
 }
 
-func NewRouter(app *fiber.App, pool *pgxpool.Pool, redis *redis.Client, validate *validator.StructValidator) *Router {
-	return &Router{app: app, pool: pool, redis: redis, validate: validate}
+func NewRouter(
+	app *fiber.App,
+	todoHandler *handlers.TodoHandler,
+	internalHandler *handlers.InternalHandler,
+	validationHandler *handlers.ValidationHandler,
+) *Router {
+	return &Router{
+		app:               app,
+		todoHandler:       todoHandler,
+		internalHandler:   internalHandler,
+		validationHandler: validationHandler,
+	}
 }
 
 func (r *Router) RegisterRoutes() {
 	api := r.app.Group("/v1")
 
-	repo := postgres.NewTodoRepo(r.pool)
-	svc := todo.NewService(repo, r.redis, 60*time.Second)
-	todoHandler := handlers.NewTodoHandler(svc, r.validate)
+	routes.RegisterTodoRoutes(api, r.todoHandler)
+	routes.RegisterSystemRoutes(api, r.internalHandler)
+	routes.RegisterValidationRoutes(api, r.validationHandler)
 
-	todos := api.Group("/todos")
-	todos.Post("/", todoHandler.Create)
-	todos.Get("/", todoHandler.List)
-	todos.Get("/:id", todoHandler.Get)
-	todos.Put("/:id", todoHandler.Update)
-	todos.Delete("/:id", todoHandler.Delete)
-
-	// Internal + Self-call wajib
-	internal := handlers.NewInternalHandler()
-	api.Get("/internal/echo", internal.Echo)
-	api.Get("/client/self-call", internal.SelfCall)
-
-	// health
 	api.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok"})
 	})

@@ -3,8 +3,8 @@ package postgres
 import (
 	"context"
 	"errors"
-	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.elastic.co/apm/v2"
 
@@ -36,6 +36,9 @@ func (r *TodoRepo) GetByID(ctx context.Context, id todo.ID) (*todo.Todo, error) 
 	row := r.pool.QueryRow(ctx, q, id)
 	var t todo.Todo
 	if err := row.Scan(&t.ID, &t.Title, &t.Completed, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, todo.ErrNotFound
+		}
 		return nil, err
 	}
 	return &t, nil
@@ -75,12 +78,12 @@ func (r *TodoRepo) Update(ctx context.Context, t *todo.Todo) error {
 	defer span.End()
 
 	const q = `UPDATE todos SET title=$2, completed=$3, updated_at=$4 WHERE id=$1`
-	ct, err := r.pool.Exec(ctx, q, t.ID, t.Title, t.Completed, time.Now().UTC())
+	ct, err := r.pool.Exec(ctx, q, t.ID, t.Title, t.Completed, t.UpdatedAt)
 	if err != nil {
 		return err
 	}
 	if ct.RowsAffected() == 0 {
-		return errors.New("no rows updated")
+		return todo.ErrNotFound
 	}
 	return nil
 }
@@ -90,6 +93,12 @@ func (r *TodoRepo) Delete(ctx context.Context, id todo.ID) error {
 	defer span.End()
 
 	const q = `DELETE FROM todos WHERE id=$1`
-	_, err := r.pool.Exec(ctx, q, id)
-	return err
+	ct, err := r.pool.Exec(ctx, q, id)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return todo.ErrNotFound
+	}
+	return nil
 }

@@ -25,7 +25,8 @@ It also includes a **mandatory self-hit** outbound client example that logs with
     * **Rule registration model** mirrors your provided pattern.
 * **Response remapping via map** (no `switch`) for consistent API envelopes.
 * **Self-hit endpoint** demonstrating outbound HTTP with APM + welog client logging.
-* **Clean architecture / DDD** layering: `domain` (entities/services) ↔ `adapter` (repo/cache) ↔ `transport/http`.
+* **Clean architecture** layering inspired by Fiber recipe: `domain` (entities + ports) → `usecase` (application
+  service) → `transport/http` (handler/routes/presenter), with infra in `adapter`.
 
 ---
 
@@ -60,13 +61,17 @@ ms-gofiber/
 │  ├─ config/              # config loader (.env via godotenv)
 │  ├─ dto/                 # request DTOs validated with validator
 │  ├─ domain/
-│  │  └─ todo/             # entity + service interfaces/impl
+│  │  └─ todo/             # entity + repository port + domain errors
+│  ├─ usecase/
+│  │  └─ todo/             # application service/use case
 │  ├─ adapter/
+│  │  ├─ cache/
+│  │  │  └─ redis/         # redis cache adapter
 │  │  └─ repository/
 │  │     └─ postgres/      # pgx/v5 repository implementation
 │  ├─ middleware/          # global middlewares (error, headers, request id)
 │  ├─ transport/
-│  │  └─ http/             # router + HTTP handlers
+│  │  └─ http/             # router + handlers + presenter + routes
 │  └─ validator/           # custom rules: plainbase + structbase + register
 ├─ pkg/
 │  ├─ apmredis/            # Redis APM hook (trace all commands)
@@ -128,6 +133,24 @@ Server listens on `APP_HOST:APP_PORT` (default `0.0.0.0:8080`).
 
 ## API Reference (Quick)
 
+### Required Headers (for protected endpoints)
+
+Middleware `HeaderGuard` + `ExternalIDGuard` mewajibkan header ini pada endpoint non-skip:
+
+```
+X-PARTNER-ID: <alphanumeric, max 36>
+CHANNEL-ID: <alphanumeric, max 5>
+X-EXTERNAL-ID: <numeric, max 36, unique within TTL>
+```
+
+Skip path default:
+
+```
+/v1/health
+/v1/internal/echo
+/v1/client/self-call
+```
+
 ### Health
 
 ```
@@ -151,6 +174,9 @@ DELETE /v1/todos/:id       # delete
 ```bash
 curl -X POST http://localhost:8080/v1/todos \
   -H "Content-Type: application/json" \
+  -H "X-PARTNER-ID: PARTNER123" \
+  -H "CHANNEL-ID: CHN01" \
+  -H "X-EXTERNAL-ID: 10000000000001" \
   -d '{"title":"My Task","completed":false}'
 ```
 
@@ -185,6 +211,27 @@ GET /v1/client/self-call
 * Calls `GET /v1/internal/echo` via the APM-wrapped HTTP client.
 * Logs client request/response using `welog.LogFiberClient(...)`.
 * Returns upstream status and body in the standard success envelope.
+
+### Validator Demo (plain + struct base)
+
+```
+POST /v1/internal/validator/prepare-example
+```
+
+Body example:
+
+```json
+{
+  "terminalType": "APP",
+  "osType": "ANDROID",
+  "osVersion": "14",
+  "grantType": "AUTHORIZATION_CODE",
+  "paymentMethodType": "DANA",
+  "scope": ["SEND_OTP"],
+  "transactionTime": "2026-02-23T10:30:00Z",
+  "merchantName": "Demo Merchant"
+}
+```
 
 ---
 
@@ -229,7 +276,11 @@ Completed bool   `json:"completed"`
 }
 ```
 
-Struct-level rule example (`TodoUpsertStructRule`) enforces trimming and non-blank semantics.
+Struct-level rule examples:
+
+* `TodoUpsertStructRule`: enforce trim + non-blank title.
+* `PrepareExampleStructRule`: validasi kombinasi `terminalType` vs `osType`/`osVersion` (adaptasi dari pola
+  `PrepareStructRule` di project referensi).
 
 **Rule registration** follows a map-based model:
 
@@ -239,6 +290,7 @@ var customRules = map[string]validator.Func{
 }
 var customStructRules = []fiber.Map{
 { "func": structbase.TodoUpsertStructRule, "type": dto.TodoUpsertRequest{} },
+{ "func": structbase.PrepareExampleStructRule, "type": dto.PrepareExampleRequest{} },
 }
 ```
 
@@ -282,11 +334,11 @@ var customStructRules = []fiber.Map{
 
 ## Clean Architecture / DDD
 
-* **Domain** (`internal/domain`): entities + service interfaces/impl — no framework imports here (except `context` and
-  telemetry).
-* **Adapters** (`internal/adapter/...`): DB/cache repositories, external gateways.
-* **Transport** (`internal/transport/http`): HTTP handlers + router. They parse/validate DTOs, call domain services, and
-  format responses.
+* **Domain** (`internal/domain`): entities + repository ports + domain-level errors, tanpa ketergantungan framework.
+* **Usecase** (`internal/usecase`): business flow aplikasi, orkestrasi repo + cache melalui interface.
+* **Adapters** (`internal/adapter/...`): implementasi konkret DB/cache untuk memenuhi port/usecase.
+* **Transport** (`internal/transport/http`): handlers + routes + presenter, untuk parsing request dan formatting
+  response.
 * **Cross-cutting** (`pkg/...`): DB/Redis constructors, APM hooks, HTTP client, response mapping, app errors.
 
 ---
@@ -323,8 +375,8 @@ ELASTIC_APM_RECORDING=true
 
 ## Extending
 
-* **New domain**: create `internal/domain/<name>` (entity, repository interface, service), add adapter(s) under
-  `internal/adapter`, then handlers + routes.
+* **New domain**: create `internal/domain/<name>` (entity + repository port), lanjutkan `internal/usecase/<name>`, lalu
+  implement adapter(s) di `internal/adapter` dan expose lewat handlers + routes.
 * **New validators**: implement in `internal/validator/rule/plainbase` or `structbase`, register in
   `internal/validator/rule/register.go`.
 * **New outbound client**: add helper in `pkg/httpx` or a domain-specific gateway; always pass `c.UserContext()` and log
@@ -361,8 +413,13 @@ go run ./cmd/ms-gofiber
 
 # hit endpoints
 curl http://localhost:8080/v1/health
-curl -X POST http://localhost:8080/v1/todos -H 'Content-Type: application/json' -d '{"title":"Demo"}'
+curl -X POST http://localhost:8080/v1/todos \
+  -H 'Content-Type: application/json' \
+  -H 'X-PARTNER-ID: PARTNER123' \
+  -H 'CHANNEL-ID: CHN01' \
+  -H 'X-EXTERNAL-ID: 10000000000001' \
+  -d '{"title":"Demo Todo","completed":false}'
 curl http://localhost:8080/v1/client/self-call
 ```
 
-Happy building! 🚀
+Happy building!

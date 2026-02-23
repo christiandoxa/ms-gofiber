@@ -26,6 +26,10 @@ var customStructRules = []fiber.Map{
 		"func": structbase.TodoUpsertStructRule,
 		"type": dto.TodoUpsertRequest{},
 	},
+	{
+		"func": structbase.PrepareExampleStructRule,
+		"type": dto.PrepareExampleRequest{},
+	},
 }
 
 func RegisterRule(validate *validator.Validate) error {
