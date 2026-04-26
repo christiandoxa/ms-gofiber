@@ -57,6 +57,12 @@ func TestInternalSelfCallBranches(t *testing.T) {
 	app.Get("/self", h.SelfCall)
 	assertStatus(t, app, httptest.NewRequest("GET", "/self", nil), 500)
 
+	// invalid upstream body path
+	httpDo = func(context.Context, httpx.Request, httpx.Logger) (*httpx.Response, error) {
+		return &httpx.Response{StatusCode: 200, Body: []byte(`{`)}, nil
+	}
+	assertStatus(t, app, httptest.NewRequest("GET", "/self", nil), 500)
+
 	// success path
 	httpDo = func(context.Context, httpx.Request, httpx.Logger) (*httpx.Response, error) {
 		return &httpx.Response{StatusCode: 200, Body: []byte(`{"echo":"ok"}`)}, nil

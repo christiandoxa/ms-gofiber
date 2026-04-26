@@ -1,4 +1,4 @@
-package structbase
+package validation
 
 import "github.com/go-playground/validator/v10"
 

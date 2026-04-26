@@ -8,7 +8,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 
-	"ms-gofiber/internal/app/adapter/dto"
 	"ms-gofiber/pkg/apperror"
 )
 
@@ -16,7 +15,13 @@ type RequestValidator interface {
 	ValidateStruct(any) error
 }
 
-var reqHeaderParser = func(c *fiber.Ctx, out *dto.RequestHeader) error {
+type RequestHeader struct {
+	XPartnerID  string `reqHeader:"X-PARTNER-ID" json:"X-PARTNER-ID" validate:"required,alphanum,max=36"`
+	ChannelID   string `reqHeader:"CHANNEL-ID" json:"CHANNEL-ID" validate:"required,alphanum,max=5"`
+	XExternalID string `reqHeader:"X-EXTERNAL-ID" json:"X-EXTERNAL-ID" validate:"required,numeric,max=36"`
+}
+
+var reqHeaderParser = func(c *fiber.Ctx, out *RequestHeader) error {
 	return c.ReqHeaderParser(out)
 }
 
@@ -38,7 +43,7 @@ func HeaderGuard(validate RequestValidator, skippedPaths map[string]struct{}) fi
 			return c.Next()
 		}
 
-		var header dto.RequestHeader
+		var header RequestHeader
 		if err := reqHeaderParser(c, &header); err != nil {
 			logMiddlewareError(c, err)
 			return apperror.New(apperror.ErrBadRequest, "invalid request headers")

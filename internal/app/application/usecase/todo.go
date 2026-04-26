@@ -70,7 +70,9 @@ func (u *todo) Get(ctx context.Context, id domain.TodoID) (*domain.Todo, error) 
 	}
 
 	if u.cache != nil {
-		_ = u.cache.SetTodo(ctx, t, u.ttl)
+		if err := u.cache.SetTodo(ctx, t, u.ttl); err != nil {
+			return t, nil
+		}
 	}
 	return t, nil
 }
@@ -93,7 +95,9 @@ func (u *todo) Update(ctx context.Context, in *domain.Todo) (*domain.Todo, error
 	}
 
 	if u.cache != nil {
-		_ = u.cache.DeleteTodo(ctx, in.ID)
+		if err := u.cache.DeleteTodo(ctx, in.ID); err != nil {
+			return in, nil
+		}
 	}
 	return in, nil
 }
@@ -107,7 +111,9 @@ func (u *todo) Delete(ctx context.Context, id domain.TodoID) error {
 	}
 
 	if u.cache != nil {
-		_ = u.cache.DeleteTodo(ctx, id)
+		if err := u.cache.DeleteTodo(ctx, id); err != nil {
+			return nil
+		}
 	}
 	return nil
 }

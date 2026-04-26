@@ -18,16 +18,22 @@ type server interface {
 	ShutdownWithContext(ctx context.Context) error
 }
 
+type closeFunc = app.CloseFunc
+
 var (
 	loadConfig = config.Load
-	buildApp   = func(cfg *config.Config) (server, func(), error) {
-		return app.Build(cfg)
+	buildApp   = func(ctx context.Context, cfg *config.Config) (server, closeFunc, error) {
+		return app.Build(ctx, cfg)
 	}
 	notifySignal = signal.Notify
 	withTimeout  = context.WithTimeout
-	runMain      = run
+	runMain      = runBackground
 	fatalf       = log.Fatalf
 )
+
+func runBackground() error {
+	return run(context.Background())
+}
 
 func main() {
 	if err := runMain(); err != nil {
@@ -35,19 +41,21 @@ func main() {
 	}
 }
 
-func run() error {
+func run(ctx context.Context) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("config load error: %w", err)
 	}
 
-	fbApp, closer, err := buildApp(cfg)
+	fbApp, closer, err := buildApp(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("app build error: %w", err)
 	}
 	defer func() {
 		if closer != nil {
-			closer()
+			if closeErr := closer(); closeErr != nil {
+				log.Printf("app close error: %v", closeErr)
+			}
 		}
 	}()
 
@@ -67,15 +75,23 @@ func run() error {
 			return fmt.Errorf("fiber listen error: %w", err)
 		}
 	case <-quit:
+	case <-ctx.Done():
 	}
 
 	log.Println("shutdown signal received")
-	ctx, cancel := withTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := withTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := fbApp.ShutdownWithContext(ctx); err != nil {
+	if err := fbApp.ShutdownWithContext(shutdownCtx); err != nil {
 		return fmt.Errorf("fiber shutdown error: %w", err)
 	}
+
+	closeErr := closer()
+	closer = nil
+	if closeErr != nil {
+		return fmt.Errorf("app close error: %w", closeErr)
+	}
+
 	log.Println("server gracefully stopped")
 	return nil
 }

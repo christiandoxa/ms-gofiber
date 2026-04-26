@@ -42,6 +42,8 @@ The baseline lint configuration is `.golangci.yml`. It enables a focused starter
 * `bodyclose`
 * `misspell`
 
+`errcheck` runs with `check-blank: true`, so error returns must be handled explicitly instead of assigned to `_`.
+
 Install `golangci-lint` before running `make lint`.
 
 ## Coverage

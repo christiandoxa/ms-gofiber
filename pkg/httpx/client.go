@@ -96,7 +96,7 @@ func Do(ctx context.Context, req Request, logger Logger) (*Response, error) {
 	}
 	defer closeBody(ctx, httpRes.Body)
 
-	body, _ := io.ReadAll(httpRes.Body)
+	body, err := io.ReadAll(httpRes.Body)
 
 	resLog := ResponseLog{
 		Header:  headerToInterface(httpRes.Header),
@@ -105,6 +105,9 @@ func Do(ctx context.Context, req Request, logger Logger) (*Response, error) {
 		Latency: time.Since(start),
 	}
 	logRequest(ctx, logger, reqLog, resLog)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Response{
 		StatusCode: httpRes.StatusCode,

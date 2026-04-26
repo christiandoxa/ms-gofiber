@@ -2,6 +2,7 @@ package validator
 
 import (
 	"errors"
+	"fmt"
 
 	v10 "github.com/go-playground/validator/v10"
 
@@ -9,14 +10,24 @@ import (
 	"ms-gofiber/pkg/apperror"
 )
 
+type RuleRegistrar func(*v10.Validate) error
+
 type StructValidator struct {
 	v *v10.Validate
 }
 
-func NewStructValidator() *StructValidator {
+func NewStructValidator(registrars ...RuleRegistrar) (*StructValidator, error) {
 	v := v10.New()
-	_ = rule.RegisterRule(v)
-	return &StructValidator{v: v}
+	allRegistrars := make([]RuleRegistrar, 0, len(registrars)+1)
+	allRegistrars = append(allRegistrars, rule.RegisterRule)
+	allRegistrars = append(allRegistrars, registrars...)
+
+	for _, register := range allRegistrars {
+		if err := register(v); err != nil {
+			return nil, fmt.Errorf("register validation rules: %w", err)
+		}
+	}
+	return &StructValidator{v: v}, nil
 }
 
 func (sv *StructValidator) ValidateStruct(i any) error {

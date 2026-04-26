@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,13 +44,11 @@ func NewSQLiteDB(ctx context.Context, opts SQLiteOptions) (*sql.DB, error) {
 	pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if err := pingSQLiteDB(pctx, db); err != nil {
-		_ = db.Close()
-		return nil, err
+		return nil, errors.Join(err, db.Close())
 	}
 
 	if err := ensureSQLiteSchema(ctx, db); err != nil {
-		_ = db.Close()
-		return nil, err
+		return nil, errors.Join(err, db.Close())
 	}
 
 	return db, nil

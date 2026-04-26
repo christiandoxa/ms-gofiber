@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -216,5 +215,3 @@ func jsonRequest(method, target, body string) *http.Request {
 	req.Header.Set("Content-Type", "application/json")
 	return req
 }
-
-var _ = errors.New

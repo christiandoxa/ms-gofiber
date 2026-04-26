@@ -37,7 +37,9 @@ func TestEnsureSchema(t *testing.T) {
 	if err := ensureSchema(context.Background(), db); err != nil {
 		t.Fatalf("ensure schema error: %v", err)
 	}
-	_ = db.Close()
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
 	if err := ensureSchema(context.Background(), db); err == nil {
 		t.Fatalf("expected schema error on closed db")
 	}

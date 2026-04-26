@@ -15,14 +15,18 @@ func TestHookWrappers(t *testing.T) {
 
 	dial := h.DialHook(func(ctx context.Context, network, addr string) (net.Conn, error) {
 		c1, c2 := net.Pipe()
-		_ = c2.Close()
+		if err := c2.Close(); err != nil {
+			t.Fatalf("close peer conn: %v", err)
+		}
 		return c1, nil
 	})
 	conn, err := dial(ctx, "tcp", "x")
 	if err != nil {
 		t.Fatalf("dial error: %v", err)
 	}
-	_ = conn.Close()
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close conn: %v", err)
+	}
 
 	processOK := h.ProcessHook(func(context.Context, redis.Cmder) error { return nil })
 	if err := processOK(ctx, redis.NewStringCmd(ctx, "GET", "k")); err != nil {

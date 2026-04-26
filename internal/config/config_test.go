@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -46,7 +47,9 @@ func TestLoadWithDefaultsAndOverrides(t *testing.T) {
 }
 
 func TestHelpersFallback(t *testing.T) {
-	_ = os.Unsetenv("X_NOPE")
+	if err := os.Unsetenv("X_NOPE"); err != nil {
+		t.Fatalf("unset env: %v", err)
+	}
 	if got := getenv("X_NOPE", "d"); got != "d" {
 		t.Fatalf("expected default, got %s", got)
 	}
@@ -62,7 +65,45 @@ func TestHelpersFallback(t *testing.T) {
 	}
 }
 
+func TestLoadOptionalDotenv(t *testing.T) {
+	origStat := statEnvFile
+	origLoad := loadEnvFile
+	t.Cleanup(func() {
+		statEnvFile = origStat
+		loadEnvFile = origLoad
+	})
+
+	statEnvFile = func() (os.FileInfo, error) { return nil, os.ErrNotExist }
+	if err := loadOptionalDotenv(); err != nil {
+		t.Fatalf("missing .env should be optional: %v", err)
+	}
+
+	statEnvFile = func() (os.FileInfo, error) { return nil, errors.New("stat") }
+	if err := loadOptionalDotenv(); err == nil || !strings.Contains(err.Error(), "stat .env") {
+		t.Fatalf("expected stat error, got %v", err)
+	}
+
+	statEnvFile = func() (os.FileInfo, error) { return nil, nil }
+	loadEnvFile = func(filenames ...string) error { return errors.New("load") }
+	if err := loadOptionalDotenv(); err == nil || !strings.Contains(err.Error(), "load .env") {
+		t.Fatalf("expected load error, got %v", err)
+	}
+
+	loadEnvFile = func(filenames ...string) error { return nil }
+	if err := loadOptionalDotenv(); err != nil {
+		t.Fatalf("expected load success, got %v", err)
+	}
+}
+
 func TestLoadInvalidConfig(t *testing.T) {
+	origStat := statEnvFile
+	t.Cleanup(func() { statEnvFile = origStat })
+	statEnvFile = func() (os.FileInfo, error) { return nil, errors.New("stat") }
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "stat .env") {
+		t.Fatalf("expected dotenv stat error, got %v", err)
+	}
+	statEnvFile = origStat
+
 	cases := []struct {
 		key   string
 		value string

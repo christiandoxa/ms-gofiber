@@ -23,9 +23,34 @@ type errCloseBody struct {
 
 func (b errCloseBody) Close() error { return errors.New("close error") }
 
+type errReadBody struct {
+	data []byte
+	done bool
+}
+
+func (b *errReadBody) Read(p []byte) (int, error) {
+	if b.done {
+		return 0, errors.New("read error")
+	}
+	b.done = true
+	return copy(p, b.data), nil
+}
+
+func (b *errReadBody) Close() error { return nil }
+
 type noopLogger struct{}
 
 func (noopLogger) Log(context.Context, RequestLog, ResponseLog) {}
+
+type captureLogger struct {
+	req RequestLog
+	res ResponseLog
+}
+
+func (l *captureLogger) Log(_ context.Context, req RequestLog, res ResponseLog) {
+	l.req = req
+	l.res = res
+}
 
 func TestHeaderToInterface(t *testing.T) {
 	h := http.Header{}
@@ -100,10 +125,37 @@ func TestDoBranches(t *testing.T) {
 		t.Fatalf("unexpected do response status=%d body=%s hdr=%v", res.StatusCode, string(res.Body), res.Header)
 	}
 
+	// response body read error path
+	logger := &captureLogger{}
+	wrapHTTPClient = func(_ *http.Client, _ ...apmhttp.ClientOption) *http.Client {
+		return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 502,
+				Header:     http.Header{"X-Test": []string{"read-error"}},
+				Body:       &errReadBody{data: []byte("partial")},
+			}, nil
+		})}
+	}
+	res, err = Do(context.Background(), Request{
+		Method: "GET",
+		URL:    "http://example.com",
+	}, logger)
+	if err == nil {
+		t.Fatalf("expected read error")
+	}
+	if res != nil {
+		t.Fatalf("expected nil response on read error")
+	}
+	if logger.res.Status != 502 || logger.res.Header["X-Test"] != "read-error" || string(logger.res.Body) != "partial" {
+		t.Fatalf("unexpected logged read-error response: %+v", logger.res)
+	}
+
 	// real server success path
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-From", "server")
-		_, _ = w.Write([]byte("pong"))
+		if _, err := w.Write([]byte("pong")); err != nil {
+			t.Fatalf("write response: %v", err)
+		}
 	}))
 	defer srv.Close()
 	wrapHTTPClient = origWrap

@@ -10,6 +10,7 @@ This service follows a clean architecture shape:
 * `internal/app/adapter/dto`: request DTOs for transport validation.
 * `internal/app/adapter/presenter`: response mapping from domain/application data to API payloads.
 * `internal/app/adapter/repository`: concrete persistence and cache implementations.
+* `internal/app/adapter/validation`: request-specific struct-level validation rules.
 * `pkg/`: reusable infrastructure helpers such as database setup, Redis setup, HTTP client wrapping, APM hooks, app errors, and response envelopes.
 
 ## Dependency Direction

@@ -14,7 +14,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 
-	"ms-gofiber/internal/app/adapter/dto"
 	"ms-gofiber/pkg/apperror"
 )
 
@@ -46,7 +45,7 @@ func TestHeaderGuardBranches(t *testing.T) {
 	t.Cleanup(func() { reqHeaderParser = orig })
 
 	// parse error branch
-	reqHeaderParser = func(c *fiber.Ctx, out *dto.RequestHeader) error { return errors.New("parse") }
+	reqHeaderParser = func(c *fiber.Ctx, out *RequestHeader) error { return errors.New("parse") }
 	app := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
 	withLogger(app)
 	app.Use(HeaderGuard(mockReqValidator{}, map[string]struct{}{}))
@@ -82,9 +81,8 @@ func TestHeaderGuardBranches(t *testing.T) {
 	withLogger(app3)
 	app3.Use(HeaderGuard(mockReqValidator{}, nil)) // nil covers default skipped paths.
 	app3.Get("/v1/todos", func(c *fiber.Ctx) error {
-		h, _ := c.Locals("request_header").(map[string]any)
-		_ = h
-		return c.JSON(fiber.Map{"ok": true, "has": c.Locals("request_header") != nil})
+		header, ok := c.Locals("request_header").(RequestHeader)
+		return c.JSON(fiber.Map{"ok": ok, "partner": header.XPartnerID})
 	})
 	req = httptest.NewRequest("GET", "/v1/todos", nil)
 	req.Header.Set("X-PARTNER-ID", "A1")
@@ -101,7 +99,7 @@ func TestHeaderGuardBranches(t *testing.T) {
 	if err := res.Body.Close(); err != nil {
 		t.Fatalf("close response body: %v", err)
 	}
-	if body["has"] != true {
+	if body["ok"] != true || body["partner"] != "A1" {
 		t.Fatalf("expected request_header locals present: %+v", body)
 	}
 

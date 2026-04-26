@@ -59,12 +59,12 @@ ms-gofiber/
 │     └─ main.go
 ├─ internal/
 │  ├─ app/
-│  │  ├─ adapter/          # controller, request DTOs, presenter, repository impl
+│  │  ├─ adapter/          # controller, request DTOs, presenter, validation, repository impl
 │  │  ├─ application/      # usecase layer
 │  │  └─ domain/           # entities + repository interfaces
 │  ├─ config/              # config loader (.env via godotenv)
 │  ├─ middleware/          # global middlewares (error, headers, request id)
-│  └─ validator/           # custom rules: plainbase + structbase + register
+│  └─ validator/           # reusable field-level validation rules
 ├─ pkg/
 │  ├─ apmredis/            # Redis APM hook (trace all commands)
 │  ├─ apperror/            # typed app errors
@@ -261,7 +261,7 @@ All responses use a consistent envelope (see `pkg/respond/respond.go`):
 ## Validation
 
 * **Field-level** rules in `internal/validator/rule/plainbase` (e.g. `alphanum_with_space`, `authorization_scope`, etc).
-* **Struct-level** rules in `internal/validator/rule/structbase`.
+* **App-specific struct-level** rules in `internal/app/adapter/validation`.
 
 Example DTO (validated in handlers):
 
@@ -274,8 +274,8 @@ type TodoUpsertRequest struct {
 
 Struct-level rule examples:
 
-* `TodoUpsertStructRule`: enforce trim + non-blank title.
-* `PrepareExampleStructRule`: validates the `terminalType` versus `osType`/`osVersion` combination.
+* `todoUpsertStructRule`: enforce trim + non-blank title.
+* `prepareExampleStructRule`: validates the `terminalType` versus `osType`/`osVersion` combination.
 
 **Rule registration** uses typed entries:
 
@@ -372,8 +372,10 @@ ELASTIC_APM_RECORDING=true
 
 * **New domain**: create the entity and repository interface in `internal/app/domain`, add the usecase in
   `internal/app/application/usecase`, then implement adapters in `internal/app/adapter`.
-* **New validators**: implement in `internal/validator/rule/plainbase` or `structbase`, register in
+* **New reusable field validators**: implement in `internal/validator/rule/plainbase` and register in
   `internal/validator/rule/register.go`.
+* **New request-specific struct validators**: implement in `internal/app/adapter/validation` so DTO rules stay in the
+  HTTP adapter boundary.
 * **New outbound client**: add helper in `pkg/httpx` or a domain-specific gateway; always pass `c.UserContext()` and log
   with `welog.LogFiberClient(...)`.
 

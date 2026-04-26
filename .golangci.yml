@@ -20,6 +20,8 @@ linters:
     - staticcheck
     - unused
   settings:
+    errcheck:
+      check-blank: true
     misspell:
       locale: US
     gocognit:

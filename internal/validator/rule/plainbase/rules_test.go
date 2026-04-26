@@ -9,14 +9,21 @@ import (
 func mustRegister(t *testing.T) *v10.Validate {
 	t.Helper()
 	v := v10.New()
-	_ = v.RegisterValidation("alphanum_with_space", ValidateAlphanumWithSpaceRule)
-	_ = v.RegisterValidation("authorization_scope", ValidateAuthorizationScopeRule)
-	_ = v.RegisterValidation("grant_type", ValidateGrantTypeRule)
-	_ = v.RegisterValidation("payment_method_type", ValidatePaymentMethodTypeRule)
-	_ = v.RegisterValidation("terminal_type", ValidateTerminalTypeRule)
-	_ = v.RegisterValidation("time_rule", ValidateTimeRule)
-	_ = v.RegisterValidation("xtrim", ValidateTrimRule)
-	_ = v.RegisterValidation("xnotblank", ValidateNotBlankRule)
+	rules := map[string]v10.Func{
+		"alphanum_with_space": ValidateAlphanumWithSpaceRule,
+		"authorization_scope": ValidateAuthorizationScopeRule,
+		"grant_type":          ValidateGrantTypeRule,
+		"payment_method_type": ValidatePaymentMethodTypeRule,
+		"terminal_type":       ValidateTerminalTypeRule,
+		"time_rule":           ValidateTimeRule,
+		"xtrim":               ValidateTrimRule,
+		"xnotblank":           ValidateNotBlankRule,
+	}
+	for name, fn := range rules {
+		if err := v.RegisterValidation(name, fn); err != nil {
+			t.Fatalf("register %s: %v", name, err)
+		}
+	}
 	return v
 }
 

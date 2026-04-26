@@ -21,7 +21,9 @@ func setupDB(t *testing.T) *sql.DB {
 		t.Fatalf("open sqlite error: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = db.Close()
+		if err := db.Close(); err != nil && !errors.Is(err, sql.ErrConnDone) {
+			t.Logf("close sqlite fixture: %v", err)
+		}
 	})
 	_, err = db.Exec(`
 CREATE TABLE IF NOT EXISTS todos (
@@ -111,7 +113,9 @@ func TestTodoRepositoryClosedDBBranches(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	_ = db.Close()
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
 	if _, err := repo.List(ctx, 1, 0); err == nil {
 		t.Fatalf("expected list error on closed db")
 	}

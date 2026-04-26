@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -15,6 +16,7 @@ import (
 	"ms-gofiber/internal/app/adapter/controller"
 	redisadapter "ms-gofiber/internal/app/adapter/repository/redis"
 	sqliteadapter "ms-gofiber/internal/app/adapter/repository/sqlite"
+	appvalidation "ms-gofiber/internal/app/adapter/validation"
 	todousecase "ms-gofiber/internal/app/application/usecase"
 	"ms-gofiber/internal/config"
 	"ms-gofiber/internal/middleware"
@@ -23,13 +25,28 @@ import (
 	"ms-gofiber/pkg/db"
 )
 
-func Build(cfg *config.Config) (*fiber.App, func(), error) {
-	infra, err := buildInfrastructure(context.Background(), cfg)
+type CloseFunc func() error
+
+var newValidator = func() (controller.RequestValidator, error) {
+	return validator.NewStructValidator(appvalidation.RegisterStructRules)
+}
+
+func Build(ctx context.Context, cfg *config.Config) (*fiber.App, CloseFunc, error) {
+	if cfg == nil {
+		return nil, nil, errors.New("config is nil")
+	}
+
+	infra, err := buildInfrastructure(ctx, cfg)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	validate := validator.NewStructValidator()
+	validate, err := newValidator()
+	if err != nil {
+		closeErr := infra.Close()
+		return nil, nil, errors.Join(err, closeErr)
+	}
+
 	fiberApp := newFiberApp(cfg)
 	registerMiddleware(fiberApp, validate, infra.redisClient, cfg.RedisDefaultTTLDuration())
 	registerRoutes(fiberApp, validate, infra, cfg.RedisDefaultTTLDuration())
@@ -60,9 +77,8 @@ func buildInfrastructure(ctx context.Context, cfg *config.Config) (*infrastructu
 	}, nil
 }
 
-func (i *infrastructure) Close() {
-	_ = i.sqliteDB.Close()
-	_ = i.redisClient.Close()
+func (i *infrastructure) Close() error {
+	return errors.Join(i.sqliteDB.Close(), i.redisClient.Close())
 }
 
 func newFiberApp(cfg *config.Config) *fiber.App {
@@ -79,13 +95,15 @@ func registerMiddleware(
 	redisClient *redis.Client,
 	externalIDTTL time.Duration,
 ) {
+	skippedPaths := middleware.DefaultSkippedPaths()
+
 	app.Use(cors.New())
 	app.Use(middleware.RequestID())
 	app.Use(middleware.SecurityHeaders())
 	app.Use(apmfiber.Middleware())
 	app.Use(welog.NewFiber(fiber.Config{}))
-	app.Use(middleware.HeaderGuard(validate, middleware.DefaultSkippedPaths()))
-	app.Use(middleware.ExternalIDGuard(redisClient, externalIDTTL, middleware.DefaultSkippedPaths()))
+	app.Use(middleware.HeaderGuard(validate, skippedPaths))
+	app.Use(middleware.ExternalIDGuard(redisClient, externalIDTTL, skippedPaths))
 }
 
 func registerRoutes(

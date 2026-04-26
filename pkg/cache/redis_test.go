@@ -9,5 +9,7 @@ func TestNewRedis(t *testing.T) {
 	if c == nil {
 		t.Fatalf("expected redis client")
 	}
-	_ = c.Close()
+	if err := c.Close(); err != nil {
+		t.Fatalf("close redis client: %v", err)
+	}
 }

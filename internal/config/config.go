@@ -1,12 +1,18 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
+)
+
+var (
+	statEnvFile = func() (os.FileInfo, error) { return os.Stat(".env") }
+	loadEnvFile = godotenv.Load
 )
 
 type Config struct {
@@ -26,7 +32,9 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	_ = godotenv.Load()
+	if err := loadOptionalDotenv(); err != nil {
+		return nil, err
+	}
 
 	appPort, err := getenvInt("APP_PORT", 8080)
 	if err != nil {
@@ -68,6 +76,19 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func loadOptionalDotenv() error {
+	if _, err := statEnvFile(); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat .env: %w", err)
+	}
+	if err := loadEnvFile(); err != nil {
+		return fmt.Errorf("load .env: %w", err)
+	}
+	return nil
 }
 
 func getenv(k, def string) string {

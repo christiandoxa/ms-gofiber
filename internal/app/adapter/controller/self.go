@@ -53,7 +53,10 @@ func (h *Internal) SelfCall(c *fiber.Ctx) error {
 	}
 
 	var upstream any
-	_ = json.Unmarshal(res.Body, &upstream)
+	if err := json.Unmarshal(res.Body, &upstream); err != nil {
+		apm.CaptureError(ctx, err).Send()
+		return apperror.New(apperror.ErrInternal, "invalid self call response")
+	}
 
 	return c.JSON(respond.SuccessEnvelope(fiber.Map{
 		"upstream_status": res.StatusCode,

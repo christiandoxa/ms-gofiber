@@ -51,40 +51,49 @@ func TestRunBranches(t *testing.T) {
 	cfg := &config.Config{AppHost: "127.0.0.1", AppPort: 18080}
 
 	loadConfig = func() (*config.Config, error) { return nil, errors.New("cfg") }
-	if err := run(); err == nil || !strings.Contains(err.Error(), "config load error") {
+	if err := run(context.Background()); err == nil || !strings.Contains(err.Error(), "config load error") {
 		t.Fatalf("expected config load error, got %v", err)
 	}
 
 	loadConfig = func() (*config.Config, error) { return cfg, nil }
-	buildApp = func(*config.Config) (server, func(), error) { return nil, nil, errors.New("build") }
-	if err := run(); err == nil || !strings.Contains(err.Error(), "app build error") {
+	buildApp = func(context.Context, *config.Config) (server, closeFunc, error) {
+		return nil, nil, errors.New("build")
+	}
+	if err := run(context.Background()); err == nil || !strings.Contains(err.Error(), "app build error") {
 		t.Fatalf("expected build error, got %v", err)
 	}
 
-	buildApp = func(*config.Config) (server, func(), error) {
-		return &fakeServer{listenErr: errors.New("listen")}, func() {}, nil
+	buildApp = func(context.Context, *config.Config) (server, closeFunc, error) {
+		return &fakeServer{listenErr: errors.New("listen")}, func() error { return errors.New("close") }, nil
 	}
-	if err := run(); err == nil || !strings.Contains(err.Error(), "fiber listen error") {
+	if err := run(context.Background()); err == nil || !strings.Contains(err.Error(), "fiber listen error") {
 		t.Fatalf("expected listen error, got %v", err)
 	}
 
-	buildApp = func(*config.Config) (server, func(), error) {
-		return &fakeServer{shutdownErr: errors.New("shutdown"), listenBlock: make(chan struct{})}, func() {}, nil
+	buildApp = func(context.Context, *config.Config) (server, closeFunc, error) {
+		return &fakeServer{shutdownErr: errors.New("shutdown"), listenBlock: make(chan struct{})}, func() error { return nil }, nil
 	}
 	notifySignal = func(c chan<- os.Signal, sig ...os.Signal) {
 		go func() { c <- os.Interrupt }()
 	}
-	if err := run(); err == nil || !strings.Contains(err.Error(), "fiber shutdown error") {
+	if err := run(context.Background()); err == nil || !strings.Contains(err.Error(), "fiber shutdown error") {
 		t.Fatalf("expected shutdown error, got %v", err)
 	}
 
-	buildApp = func(*config.Config) (server, func(), error) {
-		return &fakeServer{listenBlock: make(chan struct{})}, func() {}, nil
+	buildApp = func(context.Context, *config.Config) (server, closeFunc, error) {
+		return &fakeServer{listenBlock: make(chan struct{})}, func() error { return errors.New("close") }, nil
+	}
+	if err := run(context.Background()); err == nil || !strings.Contains(err.Error(), "app close error") {
+		t.Fatalf("expected close error, got %v", err)
+	}
+
+	buildApp = func(context.Context, *config.Config) (server, closeFunc, error) {
+		return &fakeServer{listenBlock: make(chan struct{})}, func() error { return nil }, nil
 	}
 	withTimeout = func(parent context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
 		return context.WithCancel(parent)
 	}
-	if err := run(); err != nil {
+	if err := runBackground(); err != nil {
 		t.Fatalf("expected success run, got %v", err)
 	}
 }
@@ -100,14 +109,16 @@ func TestDefaultBuildApp(t *testing.T) {
 		RedisDefaultTTL: 1,
 	}
 
-	server, closer, err := buildApp(cfg)
+	server, closer, err := buildApp(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("build app: %v", err)
 	}
 	if server == nil || closer == nil {
 		t.Fatalf("expected server and closer")
 	}
-	closer()
+	if err := closer(); err != nil {
+		t.Fatalf("close app: %v", err)
+	}
 }
 
 func TestMainFunction(t *testing.T) {

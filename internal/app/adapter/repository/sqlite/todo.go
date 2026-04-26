@@ -84,8 +84,7 @@ func (r *Todo) List(ctx context.Context, limit, offset int) ([]*domain.Todo, err
 	for rows.Next() {
 		t, scanErr := scanTodo(rows)
 		if scanErr != nil {
-			_ = closeRows(rows)
-			return nil, scanErr
+			return nil, errors.Join(scanErr, closeRows(rows))
 		}
 		res = append(res, t)
 	}

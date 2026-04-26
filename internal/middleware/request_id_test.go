@@ -59,8 +59,14 @@ func TestRequestIDGeneratedWhenMissing(t *testing.T) {
 	if err := res.Body.Close(); err != nil {
 		t.Fatalf("close response body: %v", err)
 	}
-	header, _ := body["header"].(string)
-	local, _ := body["local"].(string)
+	header, ok := body["header"].(string)
+	if !ok {
+		t.Fatalf("expected string header: %+v", body)
+	}
+	local, ok := body["local"].(string)
+	if !ok {
+		t.Fatalf("expected string local: %+v", body)
+	}
 	if header == "" || local == "" {
 		t.Fatalf("expected generated request id: %+v", body)
 	}
