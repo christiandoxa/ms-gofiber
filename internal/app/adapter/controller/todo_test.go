@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -57,13 +58,7 @@ func TestTodoControllerCreate(t *testing.T) {
 		return nil, nil
 	}}, mockValidator{})
 	app.Post("/todos", h.Create)
-	res, err := app.Test(httptest.NewRequest("POST", "/todos", strings.NewReader("{")))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 400 {
-		t.Fatalf("expected 400 got %d", res.StatusCode)
-	}
+	assertStatus(t, app, jsonRequest(http.MethodPost, "/todos", "{"), http.StatusBadRequest)
 
 	// validator error
 	app = setupControllerApp()
@@ -71,15 +66,8 @@ func TestTodoControllerCreate(t *testing.T) {
 		return nil, nil
 	}}, mockValidator{err: apperror.New(apperror.ErrValidation, "invalid")})
 	app.Post("/todos", h.Create)
-	req := httptest.NewRequest("POST", "/todos", strings.NewReader(`{"title":"abc","completed":false}`))
-	req.Header.Set("Content-Type", "application/json")
-	res, err = app.Test(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 400 {
-		t.Fatalf("expected 400 got %d", res.StatusCode)
-	}
+	req := jsonRequest(http.MethodPost, "/todos", `{"title":"abc","completed":false}`)
+	assertStatus(t, app, req, http.StatusBadRequest)
 
 	// usecase error
 	app = setupControllerApp()
@@ -87,15 +75,8 @@ func TestTodoControllerCreate(t *testing.T) {
 		return nil, apperror.New(apperror.ErrInternal, "boom")
 	}}, mockValidator{})
 	app.Post("/todos", h.Create)
-	req = httptest.NewRequest("POST", "/todos", strings.NewReader(`{"title":"abc","completed":false}`))
-	req.Header.Set("Content-Type", "application/json")
-	res, err = app.Test(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 500 {
-		t.Fatalf("expected 500 got %d", res.StatusCode)
-	}
+	req = jsonRequest(http.MethodPost, "/todos", `{"title":"abc","completed":false}`)
+	assertStatus(t, app, req, http.StatusInternalServerError)
 
 	// success
 	now := time.Now().UTC()
@@ -104,18 +85,66 @@ func TestTodoControllerCreate(t *testing.T) {
 		return &domain.Todo{ID: "1", Title: td.Title, Completed: td.Completed, CreatedAt: now, UpdatedAt: now}, nil
 	}}, mockValidator{})
 	app.Post("/todos", h.Create)
-	req = httptest.NewRequest("POST", "/todos", strings.NewReader(`{"title":"abc","completed":true}`))
-	req.Header.Set("Content-Type", "application/json")
-	res, err = app.Test(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
+	req = jsonRequest(http.MethodPost, "/todos", `{"title":"abc","completed":true}`)
+	assertStatus(t, app, req, http.StatusCreated)
+}
+
+func TestTodoControllerGet(t *testing.T) {
+	app := todoFixture(t)
+
+	assertStatus(t, app, httptest.NewRequest(http.MethodGet, "/todos/e", nil), http.StatusNotFound)
+	assertStatus(t, app, httptest.NewRequest(http.MethodGet, "/todos-get", nil), http.StatusBadRequest)
+	assertStatus(t, app, httptest.NewRequest(http.MethodGet, "/todos/1", nil), http.StatusOK)
+}
+
+func TestTodoControllerList(t *testing.T) {
+	app := todoFixture(t)
+
+	assertStatus(t, app, httptest.NewRequest(http.MethodGet, "/todos?limit=abc", nil), http.StatusBadRequest)
+	assertStatus(t, app, httptest.NewRequest(http.MethodGet, "/todos?limit=99", nil), http.StatusInternalServerError)
+	assertStatus(t, app, httptest.NewRequest(http.MethodGet, "/todos?limit=10&offset=0", nil), http.StatusOK)
+}
+
+func TestTodoControllerUpdate(t *testing.T) {
+	app := todoFixture(t)
+
+	assertStatus(t, app, jsonRequest(http.MethodPut, "/todos/1", "{"), http.StatusBadRequest)
+	assertStatus(t, app, jsonRequest(http.MethodPut, "/todos/e", `{"title":"abc","completed":false}`), http.StatusInternalServerError)
+	assertStatus(t, app, jsonRequest(http.MethodPut, "/todos-validation/1", `{"title":"abc","completed":false}`), http.StatusBadRequest)
+	assertStatus(t, app, jsonRequest(http.MethodPut, "/todos/1", `{"title":"abc","completed":false}`), http.StatusOK)
+	assertStatus(t, app, jsonRequest(http.MethodPut, "/todos-update", `{"title":"abc","completed":false}`), http.StatusBadRequest)
+}
+
+func TestTodoControllerDelete(t *testing.T) {
+	app := todoFixture(t)
+
+	assertStatus(t, app, httptest.NewRequest(http.MethodDelete, "/todos/e", nil), http.StatusInternalServerError)
+	assertStatus(t, app, httptest.NewRequest(http.MethodDelete, "/todos/1", nil), http.StatusNoContent)
+	assertStatus(t, app, httptest.NewRequest(http.MethodDelete, "/todos-delete", nil), http.StatusBadRequest)
+}
+
+func TestTodoControllerResponseBody(t *testing.T) {
+	app := todoFixture(t)
+	res := performRequest(t, app, httptest.NewRequest(http.MethodGet, "/todos/1", nil))
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected %d got %d", http.StatusOK, res.StatusCode)
 	}
-	if res.StatusCode != 201 {
-		t.Fatalf("expected 201 got %d", res.StatusCode)
+
+	var body map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if err := res.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
+	}
+	if body["code"] != "OK" {
+		t.Fatalf("unexpected body: %+v", body)
 	}
 }
 
-func TestTodoControllerGetListUpdateDelete(t *testing.T) {
+func todoFixture(t *testing.T) *fiber.App {
+	t.Helper()
+
 	now := time.Now().UTC()
 	uc := mockTodoUC{
 		get: func(id domain.TodoID) (*domain.Todo, error) {
@@ -157,145 +186,35 @@ func TestTodoControllerGetListUpdateDelete(t *testing.T) {
 	app.Delete("/todos-delete", h.Delete) // cover missing id branch
 	app.Get("/todos-get", h.Get)          // cover missing id branch
 
-	// get not found branch
-	res, err := app.Test(httptest.NewRequest("GET", "/todos/e", nil))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 404 { // mapped from apperror.ErrNotFound
-		t.Fatalf("expected 404 got %d", res.StatusCode)
-	}
-	// get missing id branch
-	res, err = app.Test(httptest.NewRequest("GET", "/todos-get", nil))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 400 {
-		t.Fatalf("expected 400 got %d", res.StatusCode)
-	}
+	return app
+}
 
-	res, err = app.Test(httptest.NewRequest("GET", "/todos/1", nil))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 200 {
-		t.Fatalf("expected 200 got %d", res.StatusCode)
-	}
+func assertStatus(t *testing.T, app *fiber.App, req *http.Request, expected int) {
+	t.Helper()
 
-	// list pagination error
-	res, err = app.Test(httptest.NewRequest("GET", "/todos?limit=abc", nil))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
+	res := performRequest(t, app, req)
+	if res.StatusCode != expected {
+		t.Fatalf("expected %d got %d", expected, res.StatusCode)
 	}
-	if res.StatusCode != 400 {
-		t.Fatalf("expected 400 got %d", res.StatusCode)
+	if err := res.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
 	}
-	// list usecase error
-	res, err = app.Test(httptest.NewRequest("GET", "/todos?limit=99", nil))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 500 {
-		t.Fatalf("expected 500 got %d", res.StatusCode)
-	}
-	// list success
-	res, err = app.Test(httptest.NewRequest("GET", "/todos?limit=10&offset=0", nil))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 200 {
-		t.Fatalf("expected 200 got %d", res.StatusCode)
-	}
+}
 
-	// update invalid body
-	req := httptest.NewRequest("PUT", "/todos/1", strings.NewReader("{"))
-	req.Header.Set("Content-Type", "application/json")
-	res, err = app.Test(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 400 {
-		t.Fatalf("expected 400 got %d", res.StatusCode)
-	}
-	// update error
-	req = httptest.NewRequest("PUT", "/todos/e", strings.NewReader(`{"title":"abc","completed":false}`))
-	req.Header.Set("Content-Type", "application/json")
-	res, err = app.Test(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 500 {
-		t.Fatalf("expected 500 got %d", res.StatusCode)
-	}
-	// update validation error
-	req = httptest.NewRequest("PUT", "/todos-validation/1", strings.NewReader(`{"title":"abc","completed":false}`))
-	req.Header.Set("Content-Type", "application/json")
-	res, err = app.Test(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 400 {
-		t.Fatalf("expected 400 got %d", res.StatusCode)
-	}
-	// update success
-	req = httptest.NewRequest("PUT", "/todos/1", strings.NewReader(`{"title":"abc","completed":false}`))
-	req.Header.Set("Content-Type", "application/json")
-	res, err = app.Test(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 200 {
-		t.Fatalf("expected 200 got %d", res.StatusCode)
-	}
-	// update missing id
-	req = httptest.NewRequest("PUT", "/todos-update", strings.NewReader(`{"title":"abc","completed":false}`))
-	req.Header.Set("Content-Type", "application/json")
-	res, err = app.Test(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 400 {
-		t.Fatalf("expected 400 got %d", res.StatusCode)
-	}
+func performRequest(t *testing.T, app *fiber.App, req *http.Request) *http.Response {
+	t.Helper()
 
-	// delete error
-	res, err = app.Test(httptest.NewRequest("DELETE", "/todos/e", nil))
+	res, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	if res.StatusCode != 500 {
-		t.Fatalf("expected 500 got %d", res.StatusCode)
-	}
-	// delete success
-	res, err = app.Test(httptest.NewRequest("DELETE", "/todos/1", nil))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 204 {
-		t.Fatalf("expected 204 got %d", res.StatusCode)
-	}
-	// delete missing id
-	res, err = app.Test(httptest.NewRequest("DELETE", "/todos-delete", nil))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != 400 {
-		t.Fatalf("expected 400 got %d", res.StatusCode)
-	}
+	return res
+}
 
-	// quick sanity decode one response to touch JSON body path
-	res, err = app.Test(httptest.NewRequest("GET", "/todos/1", nil))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer res.Body.Close()
-	var body map[string]any
-	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
-		t.Fatalf("decode failed: %v", err)
-	}
-	if body["code"] != "OK" {
-		t.Fatalf("unexpected body: %+v", body)
-	}
+func jsonRequest(method, target, body string) *http.Request {
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	return req
 }
 
 var _ = errors.New

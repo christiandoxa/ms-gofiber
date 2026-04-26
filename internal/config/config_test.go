@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -47,8 +48,25 @@ func TestHelpersFallback(t *testing.T) {
 		t.Fatalf("expected default, got %s", got)
 	}
 
+	got, err := getenvInt("X_NOPE", 123)
+	if err != nil || got != 123 {
+		t.Fatalf("expected fallback int, got %d err=%v", got, err)
+	}
+
 	t.Setenv("X_BAD_INT", "nan")
-	if got := getint("X_BAD_INT", 123); got != 123 {
-		t.Fatalf("expected fallback int, got %d", got)
+	if _, err := getenvInt("X_BAD_INT", 123); err == nil {
+		t.Fatalf("expected invalid integer error")
+	}
+}
+
+func TestLoadInvalidConfig(t *testing.T) {
+	t.Setenv("APP_PORT", "nan")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "APP_PORT") {
+		t.Fatalf("expected APP_PORT error, got %v", err)
+	}
+
+	t.Setenv("APP_PORT", "0")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "APP_PORT") {
+		t.Fatalf("expected APP_PORT range error, got %v", err)
 	}
 }

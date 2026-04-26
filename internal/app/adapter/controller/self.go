@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 	"go.elastic.co/apm/v2"
 
 	"ms-gofiber/pkg/apperror"
@@ -41,26 +40,23 @@ func (h *Internal) SelfCall(c *fiber.Ctx) error {
 	defer span.End()
 
 	target := fmt.Sprintf("%s/v1/internal/echo?msg=%s", c.BaseURL(), url.QueryEscape("hello-from-client"))
-	status, body, _, err := httpDo(
-		c,
-		"GET",
-		target,
-		"application/json",
-		map[string]string{"X-Demo": "self-call"},
-		nil,
-		5*time.Second,
-	)
+	res, err := httpDo(ctx, httpx.Request{
+		Method:      "GET",
+		URL:         target,
+		ContentType: "application/json",
+		Header:      map[string]string{"X-Demo": "self-call"},
+		Timeout:     5 * time.Second,
+	}, fiberHTTPLogger{ctx: c})
 	if err != nil {
-		c.Locals("logger").(*logrus.Entry).Error("Something went wrong")
 		apm.CaptureError(ctx, err).Send()
 		return apperror.New(apperror.ErrInternal, "self call failed")
 	}
 
 	var upstream any
-	_ = json.Unmarshal(body, &upstream)
+	_ = json.Unmarshal(res.Body, &upstream)
 
 	return c.JSON(respond.SuccessEnvelope(fiber.Map{
-		"upstream_status": status,
+		"upstream_status": res.StatusCode,
 		"upstream_body":   upstream,
 	}, nil))
 }

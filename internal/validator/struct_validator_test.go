@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"ms-gofiber/internal/dto"
+	"ms-gofiber/internal/app/adapter/dto"
 	"ms-gofiber/pkg/apperror"
 )
 

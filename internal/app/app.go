@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/christiandoxa/welog"
 	"go.elastic.co/apm/module/apmfiber/v2"
@@ -22,63 +24,83 @@ import (
 )
 
 func Build(cfg *config.Config) (*fiber.App, func(), error) {
-	// SQLite
-	sqliteDB, err := db.NewSQLiteDB(context.Background(), cfg)
+	infra, err := buildInfrastructure(context.Background(), cfg)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Redis (APM hook di pkg/cache)
-	redisClient := cache.NewRedis(cfg)
-
-	// Validator dengan register rule custom
 	validate := validator.NewStructValidator()
+	fiberApp := newFiberApp(cfg)
+	registerMiddleware(fiberApp, validate, infra.redisClient, cfg.RedisDefaultTTLDuration())
+	registerRoutes(fiberApp, validate, infra, cfg.RedisDefaultTTLDuration())
 
-	// Fiber
-	app := fiber.New(fiber.Config{
+	return fiberApp, infra.Close, nil
+}
+
+type infrastructure struct {
+	sqliteDB    *sql.DB
+	redisClient *redis.Client
+}
+
+func buildInfrastructure(ctx context.Context, cfg *config.Config) (*infrastructure, error) {
+	sqliteDB, err := db.NewSQLiteDB(ctx, db.SQLiteOptions{Path: cfg.SQLitePath})
+	if err != nil {
+		return nil, err
+	}
+
+	redisClient := cache.NewRedis(cache.RedisOptions{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	})
+
+	return &infrastructure{
+		sqliteDB:    sqliteDB,
+		redisClient: redisClient,
+	}, nil
+}
+
+func (i *infrastructure) Close() {
+	_ = i.sqliteDB.Close()
+	_ = i.redisClient.Close()
+}
+
+func newFiberApp(cfg *config.Config) *fiber.App {
+	return fiber.New(fiber.Config{
 		ReadTimeout:  cfg.ReadTimeout(),
 		WriteTimeout: cfg.WriteTimeout(),
 		ErrorHandler: middleware.ErrorHandler(),
 	})
+}
 
-	// Middlewares
+func registerMiddleware(
+	app *fiber.App,
+	validate middleware.RequestValidator,
+	redisClient *redis.Client,
+	externalIDTTL time.Duration,
+) {
 	app.Use(cors.New())
 	app.Use(middleware.RequestID())
 	app.Use(middleware.SecurityHeaders())
-
-	// APM inbound tracing + auto recover
 	app.Use(apmfiber.Middleware())
-
-	// Welog access log + per-request logger di c.Locals("logger")
 	app.Use(welog.NewFiber(fiber.Config{}))
+	app.Use(middleware.HeaderGuard(validate, middleware.DefaultSkippedPaths()))
+	app.Use(middleware.ExternalIDGuard(redisClient, externalIDTTL, middleware.DefaultSkippedPaths()))
+}
 
-	// Middleware contoh dari project referensi:
-	// 1) validasi header wajib
-	// 2) guard duplikasi X-EXTERNAL-ID via redis
-	skippedPaths := map[string]struct{}{
-		"/v1/health":           {},
-		"/v1/internal/echo":    {},
-		"/v1/client/self-call": {},
-	}
-	app.Use(middleware.HeaderGuard(validate, skippedPaths))
-	app.Use(middleware.ExternalIDGuard(redisClient, time.Duration(cfg.RedisDefaultTTL)*time.Second, skippedPaths))
-
-	// Dependency wiring
-	todoRepo := sqliteadapter.NewTodo(sqliteDB)
-	todoCache := redisadapter.NewTodo(redisClient)
-	todoUC := todousecase.NewTodo(todoRepo, todoCache, time.Duration(cfg.RedisDefaultTTL)*time.Second)
+func registerRoutes(
+	app *fiber.App,
+	validate controller.RequestValidator,
+	infra *infrastructure,
+	cacheTTL time.Duration,
+) {
+	todoRepo := sqliteadapter.NewTodo(infra.sqliteDB)
+	todoCache := redisadapter.NewTodo(infra.redisClient)
+	todoUC := todousecase.NewTodo(todoRepo, todoCache, cacheTTL)
 	todoController := controller.NewTodo(todoUC, validate)
 	internalController := controller.NewInternal()
 	validationController := controller.NewValidation(validate)
 
-	// Router
 	router := controller.NewRouter(app, todoController, internalController, validationController)
 	router.RegisterRoutes()
-
-	// closer
-	closer := func() {
-		_ = sqliteDB.Close()
-		_ = redisClient.Close()
-	}
-	return app, closer, nil
 }

@@ -2,9 +2,7 @@ package usecase
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,15 +12,13 @@ import (
 	"ms-gofiber/pkg/apperror"
 )
 
-// ITodoCache is interface of todo cache
-type ITodoCache interface {
-	Get(ctx context.Context, key string) ([]byte, error)
-	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
-	Delete(ctx context.Context, key string) error
+type TodoCache interface {
+	GetTodo(ctx context.Context, id domain.TodoID) (*domain.Todo, bool, error)
+	SetTodo(ctx context.Context, todo *domain.Todo, ttl time.Duration) error
+	DeleteTodo(ctx context.Context, id domain.TodoID) error
 }
 
-// ITodo is interface of todo usecase
-type ITodo interface {
+type TodoUseCase interface {
 	Create(ctx context.Context, in *domain.Todo) (*domain.Todo, error)
 	Get(ctx context.Context, id domain.TodoID) (*domain.Todo, error)
 	List(ctx context.Context, limit, offset int) ([]*domain.Todo, error)
@@ -31,13 +27,12 @@ type ITodo interface {
 }
 
 type todo struct {
-	repo  repository.ITodo
-	cache ITodoCache
+	repo  repository.TodoRepository
+	cache TodoCache
 	ttl   time.Duration
 }
 
-// NewTodo is constructor of todo usecase
-func NewTodo(repo repository.ITodo, cache ITodoCache, defaultTTL time.Duration) ITodo {
+func NewTodo(repo repository.TodoRepository, cache TodoCache, defaultTTL time.Duration) TodoUseCase {
 	return &todo{
 		repo:  repo,
 		cache: cache,
@@ -59,13 +54,10 @@ func (u *todo) Create(ctx context.Context, in *domain.Todo) (*domain.Todo, error
 }
 
 func (u *todo) Get(ctx context.Context, id domain.TodoID) (*domain.Todo, error) {
-	cacheKey := fmt.Sprintf("todo:%s", id)
 	if u.cache != nil {
-		if b, err := u.cache.Get(ctx, cacheKey); err == nil && len(b) > 0 {
-			var t domain.Todo
-			if e := json.Unmarshal(b, &t); e == nil {
-				return &t, nil
-			}
+		t, found, err := u.cache.GetTodo(ctx, id)
+		if err == nil && found {
+			return t, nil
 		}
 	}
 
@@ -78,9 +70,7 @@ func (u *todo) Get(ctx context.Context, id domain.TodoID) (*domain.Todo, error) 
 	}
 
 	if u.cache != nil {
-		if b, e := json.Marshal(t); e == nil {
-			_ = u.cache.Set(ctx, cacheKey, b, u.ttl)
-		}
+		_ = u.cache.SetTodo(ctx, t, u.ttl)
 	}
 	return t, nil
 }
@@ -103,7 +93,7 @@ func (u *todo) Update(ctx context.Context, in *domain.Todo) (*domain.Todo, error
 	}
 
 	if u.cache != nil {
-		_ = u.cache.Delete(ctx, fmt.Sprintf("todo:%s", in.ID))
+		_ = u.cache.DeleteTodo(ctx, in.ID)
 	}
 	return in, nil
 }
@@ -117,7 +107,7 @@ func (u *todo) Delete(ctx context.Context, id domain.TodoID) error {
 	}
 
 	if u.cache != nil {
-		_ = u.cache.Delete(ctx, fmt.Sprintf("todo:%s", id))
+		_ = u.cache.DeleteTodo(ctx, id)
 	}
 	return nil
 }

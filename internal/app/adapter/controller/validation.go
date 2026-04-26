@@ -4,7 +4,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"go.elastic.co/apm/v2"
 
-	"ms-gofiber/internal/dto"
+	"ms-gofiber/internal/app/adapter/dto"
 	"ms-gofiber/pkg/apperror"
 	"ms-gofiber/pkg/respond"
 )

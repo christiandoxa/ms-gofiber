@@ -19,6 +19,9 @@ func setupDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open sqlite error: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
 	_, err = db.Exec(`
 CREATE TABLE IF NOT EXISTS todos (
     id TEXT PRIMARY KEY,
@@ -35,18 +38,14 @@ CREATE INDEX IF NOT EXISTS idx_todos_created_at ON todos (created_at DESC);
 	return db
 }
 
-func TestTodoRepositoryCRUDAndBranches(t *testing.T) {
+func TestTodoRepositoryCRUD(t *testing.T) {
 	db := setupDB(t)
 	repo := NewTodo(db)
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	if _, err := repo.Create(ctx, &domain.Todo{ID: "1", Title: "t1", Completed: true, CreatedAt: now, UpdatedAt: now}); err != nil {
-		t.Fatalf("create error: %v", err)
-	}
-	if _, err := repo.Create(ctx, &domain.Todo{ID: "2", Title: "t2", Completed: false, CreatedAt: now.Add(time.Second), UpdatedAt: now.Add(time.Second)}); err != nil {
-		t.Fatalf("create error: %v", err)
-	}
+	createTodo(t, repo, ctx, "1", "t1", true, now)
+	createTodo(t, repo, ctx, "2", "t2", false, now.Add(time.Second))
 
 	got, err := repo.GetByID(ctx, "1")
 	if err != nil {
@@ -81,9 +80,14 @@ func TestTodoRepositoryCRUDAndBranches(t *testing.T) {
 	if err := repo.Delete(ctx, "none"); !errors.Is(err, domain.ErrTodoNotFound) {
 		t.Fatalf("expected delete not found, got %v", err)
 	}
+}
 
-	// parseRFC3339 fallback path (RFC3339 without nanos)
-	_, err = db.Exec(`INSERT INTO todos(id,title,completed,created_at,updated_at) VALUES(?,?,?,?,?)`, "3", "t3", 1, time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339))
+func TestTodoRepositoryTimestampBranches(t *testing.T) {
+	db := setupDB(t)
+	repo := NewTodo(db)
+	ctx := context.Background()
+
+	_, err := db.Exec(`INSERT INTO todos(id,title,completed,created_at,updated_at) VALUES(?,?,?,?,?)`, "3", "t3", 1, time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339))
 	if err != nil {
 		t.Fatalf("insert fallback row error: %v", err)
 	}
@@ -91,7 +95,6 @@ func TestTodoRepositoryCRUDAndBranches(t *testing.T) {
 		t.Fatalf("fallback parse get error: %v", err)
 	}
 
-	// parse error branch
 	_, err = db.Exec(`INSERT INTO todos(id,title,completed,created_at,updated_at) VALUES(?,?,?,?,?)`, "bad-ts", "x", 0, "bad", "bad")
 	if err != nil {
 		t.Fatalf("insert bad row error: %v", err)
@@ -99,17 +102,46 @@ func TestTodoRepositoryCRUDAndBranches(t *testing.T) {
 	if _, err = repo.GetByID(ctx, "bad-ts"); err == nil {
 		t.Fatalf("expected parse error for bad timestamp")
 	}
+}
 
-	// force query/exec error branches by closing DB
+func TestTodoRepositoryClosedDBBranches(t *testing.T) {
+	db := setupDB(t)
+	repo := NewTodo(db)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
 	_ = db.Close()
-	if _, err = repo.List(ctx, 1, 0); err == nil {
+	if _, err := repo.List(ctx, 1, 0); err == nil {
 		t.Fatalf("expected list error on closed db")
 	}
-	if err = repo.Update(ctx, &domain.Todo{ID: "1", Title: "x", UpdatedAt: now}); err == nil {
+	if err := repo.Update(ctx, &domain.Todo{ID: "1", Title: "x", UpdatedAt: now}); err == nil {
 		t.Fatalf("expected update error on closed db")
 	}
-	if err = repo.Delete(ctx, "1"); err == nil {
+	if err := repo.Delete(ctx, "1"); err == nil {
 		t.Fatalf("expected delete error on closed db")
+	}
+}
+
+func createTodo(
+	t *testing.T,
+	repo *Todo,
+	ctx context.Context,
+	id domain.TodoID,
+	title string,
+	completed bool,
+	now time.Time,
+) {
+	t.Helper()
+
+	_, err := repo.Create(ctx, &domain.Todo{
+		ID:        id,
+		Title:     title,
+		Completed: completed,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("create error: %v", err)
 	}
 }
 

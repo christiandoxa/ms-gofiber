@@ -2,95 +2,115 @@ package httpx
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"time"
 
-	"github.com/christiandoxa/welog"
-	"github.com/christiandoxa/welog/pkg/model"
-	"github.com/gofiber/fiber/v2"
 	"github.com/sirupsen/logrus"
 	"go.elastic.co/apm/module/apmhttp/v2"
 )
 
+const defaultTimeout = 10 * time.Second
+
 var (
 	newHTTPRequest = http.NewRequest
 	wrapHTTPClient = apmhttp.WrapClient
-	logFiberClient = welog.LogFiberClient
 )
 
-func Do(
-	c *fiber.Ctx,
-	method, url, contentType string,
-	hdr map[string]string,
-	body []byte,
-	timeout time.Duration,
-) (status int, respBody []byte, respHeader http.Header, err error) {
+type Request struct {
+	Method      string
+	URL         string
+	ContentType string
+	Header      map[string]string
+	Body        []byte
+	Timeout     time.Duration
+}
 
+type Response struct {
+	StatusCode int
+	Body       []byte
+	Header     http.Header
+}
+
+type Logger interface {
+	Log(ctx context.Context, req RequestLog, res ResponseLog)
+}
+
+type RequestLog struct {
+	URL         string
+	Method      string
+	ContentType string
+	Header      map[string]interface{}
+	Body        []byte
+	Timestamp   time.Time
+}
+
+type ResponseLog struct {
+	Header  map[string]interface{}
+	Body    []byte
+	Status  int
+	Latency time.Duration
+}
+
+func Do(ctx context.Context, req Request, logger Logger) (*Response, error) {
+	timeout := req.Timeout
 	if timeout <= 0 {
-		timeout = 10 * time.Second
+		timeout = defaultTimeout
 	}
 
-	req, err := newHTTPRequest(method, url, bytes.NewReader(body))
+	httpReq, err := newHTTPRequest(req.Method, req.URL, bytes.NewReader(req.Body))
 	if err != nil {
-		return 0, nil, nil, err
+		return nil, err
 	}
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
+	if req.ContentType != "" {
+		httpReq.Header.Set("Content-Type", req.ContentType)
 	}
-	for k, v := range hdr {
-		req.Header.Set(k, v)
+	for k, v := range req.Header {
+		httpReq.Header.Set(k, v)
 	}
+	httpReq = httpReq.WithContext(ctx)
 
-	// propagate APM context dari Fiber
-	req = req.WithContext(c.UserContext())
-
-	reqModel := model.TargetRequest{
-		URL:         url,
-		Method:      method,
-		ContentType: req.Header.Get("Content-Type"),
-		Header:      headerToInterface(req.Header),
-		Body:        body,
+	reqLog := RequestLog{
+		URL:         req.URL,
+		Method:      req.Method,
+		ContentType: httpReq.Header.Get("Content-Type"),
+		Header:      headerToInterface(httpReq.Header),
+		Body:        req.Body,
 		Timestamp:   time.Now(),
 	}
 
 	start := time.Now()
-
-	// http client dengan APM instrumentation
 	httpClient := wrapHTTPClient(&http.Client{Timeout: timeout})
-	res, err := httpClient.Do(req)
+	httpRes, err := httpClient.Do(httpReq)
 
-	var resModel model.TargetResponse
 	if err != nil {
-		resModel = model.TargetResponse{
+		resLog := ResponseLog{
 			Header:  map[string]interface{}{},
 			Body:    nil,
 			Status:  0,
 			Latency: time.Since(start),
 		}
-		logFiberClient(c, reqModel, resModel)
-		return 0, nil, nil, err
+		logRequest(ctx, logger, reqLog, resLog)
+		return nil, err
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			c.Locals("logger").(*logrus.Entry).Error("Something went wrong", err.Error())
-		}
-	}(res.Body)
+	defer closeBody(ctx, httpRes.Body)
 
-	rb, _ := io.ReadAll(res.Body)
-	status = res.StatusCode
-	respHeader = res.Header
-	respBody = rb
+	body, _ := io.ReadAll(httpRes.Body)
 
-	resModel = model.TargetResponse{
-		Header:  headerToInterface(res.Header),
-		Body:    rb,
-		Status:  res.StatusCode,
+	resLog := ResponseLog{
+		Header:  headerToInterface(httpRes.Header),
+		Body:    body,
+		Status:  httpRes.StatusCode,
 		Latency: time.Since(start),
 	}
-	logFiberClient(c, reqModel, resModel)
-	return status, respBody, respHeader, nil
+	logRequest(ctx, logger, reqLog, resLog)
+
+	return &Response{
+		StatusCode: httpRes.StatusCode,
+		Body:       body,
+		Header:     httpRes.Header,
+	}, nil
 }
 
 func headerToInterface(h http.Header) map[string]interface{} {
@@ -103,4 +123,17 @@ func headerToInterface(h http.Header) map[string]interface{} {
 		}
 	}
 	return m
+}
+
+func logRequest(ctx context.Context, logger Logger, req RequestLog, res ResponseLog) {
+	if logger == nil {
+		return
+	}
+	logger.Log(ctx, req, res)
+}
+
+func closeBody(ctx context.Context, body io.Closer) {
+	if err := body.Close(); err != nil {
+		logrus.WithContext(ctx).WithError(err).Error("failed to close response body")
+	}
 }

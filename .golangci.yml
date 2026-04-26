@@ -1,0 +1,26 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - errcheck
+    - gocognit
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unused
+  settings:
+    misspell:
+      locale: US
+    gocognit:
+      min-complexity: 15

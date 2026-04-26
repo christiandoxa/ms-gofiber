@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 
-	"ms-gofiber/internal/dto"
+	"ms-gofiber/internal/app/adapter/dto"
 )
 
 func TodoUpsertStructRule(sl validator.StructLevel) {

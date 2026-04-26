@@ -1,0 +1,10 @@
+{
+  "go.testFlags": [
+    "-count=1"
+  ],
+  "go.toolsManagement.autoUpdate": true,
+  "sonarlint.connectedMode.project": {
+    "connectionId": "your-sonarqube-connection-id",
+    "projectKey": "ms-gofiber"
+  }
+}

@@ -2,29 +2,52 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"ms-gofiber/internal/app/domain"
 )
 
-// Todo is redis implementation of todo cache
 type Todo struct {
 	client *redis.Client
 }
 
-// NewTodo is constructor of redis todo cache
 func NewTodo(client *redis.Client) *Todo {
 	return &Todo{client: client}
 }
 
-func (c *Todo) Get(ctx context.Context, key string) ([]byte, error) {
-	return c.client.Get(ctx, key).Bytes()
+func (c *Todo) GetTodo(ctx context.Context, id domain.TodoID) (*domain.Todo, bool, error) {
+	value, err := c.client.Get(ctx, todoKey(id)).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+
+	var todo domain.Todo
+	if err := json.Unmarshal(value, &todo); err != nil {
+		return nil, false, err
+	}
+	return &todo, true, nil
 }
 
-func (c *Todo) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
-	return c.client.Set(ctx, key, value, ttl).Err()
+func (c *Todo) SetTodo(ctx context.Context, todo *domain.Todo, ttl time.Duration) error {
+	value, err := json.Marshal(todo)
+	if err != nil {
+		return err
+	}
+	return c.client.Set(ctx, todoKey(todo.ID), value, ttl).Err()
 }
 
-func (c *Todo) Delete(ctx context.Context, key string) error {
-	return c.client.Del(ctx, key).Err()
+func (c *Todo) DeleteTodo(ctx context.Context, id domain.TodoID) error {
+	return c.client.Del(ctx, todoKey(id)).Err()
+}
+
+func todoKey(id domain.TodoID) string {
+	return fmt.Sprintf("todo:%s", id)
 }

@@ -6,7 +6,7 @@ import (
 
 	v10 "github.com/go-playground/validator/v10"
 
-	"ms-gofiber/internal/dto"
+	"ms-gofiber/internal/app/adapter/dto"
 )
 
 type stubStructLevel struct {

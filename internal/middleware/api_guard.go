@@ -1,17 +1,18 @@
 package middleware
 
 import (
+	"errors"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 
-	"ms-gofiber/internal/dto"
+	"ms-gofiber/internal/app/adapter/dto"
 	"ms-gofiber/pkg/apperror"
 )
 
-type requestValidator interface {
+type RequestValidator interface {
 	ValidateStruct(any) error
 }
 
@@ -19,7 +20,7 @@ var reqHeaderParser = func(c *fiber.Ctx, out *dto.RequestHeader) error {
 	return c.ReqHeaderParser(out)
 }
 
-func defaultSkippedPaths() map[string]struct{} {
+func DefaultSkippedPaths() map[string]struct{} {
 	return map[string]struct{}{
 		"/v1/health":           {},
 		"/v1/internal/echo":    {},
@@ -27,9 +28,9 @@ func defaultSkippedPaths() map[string]struct{} {
 	}
 }
 
-func HeaderGuard(validate requestValidator, skippedPaths map[string]struct{}) fiber.Handler {
+func HeaderGuard(validate RequestValidator, skippedPaths map[string]struct{}) fiber.Handler {
 	if skippedPaths == nil {
-		skippedPaths = defaultSkippedPaths()
+		skippedPaths = DefaultSkippedPaths()
 	}
 
 	return func(c *fiber.Ctx) error {
@@ -54,7 +55,7 @@ func HeaderGuard(validate requestValidator, skippedPaths map[string]struct{}) fi
 
 func ExternalIDGuard(redisClient *redis.Client, ttl time.Duration, skippedPaths map[string]struct{}) fiber.Handler {
 	if skippedPaths == nil {
-		skippedPaths = defaultSkippedPaths()
+		skippedPaths = DefaultSkippedPaths()
 	}
 	if ttl <= 0 {
 		ttl = 60 * time.Second
@@ -74,13 +75,13 @@ func ExternalIDGuard(redisClient *redis.Client, ttl time.Duration, skippedPaths 
 		}
 
 		key := "x-external-id:" + externalID
-		ok, err := redisClient.SetNX(c.UserContext(), key, true, ttl).Result()
+		err := redisClient.SetArgs(c.UserContext(), key, true, redis.SetArgs{Mode: "NX", TTL: ttl}).Err()
+		if errors.Is(err, redis.Nil) {
+			return apperror.New(apperror.ErrConflict, "duplicate X-EXTERNAL-ID")
+		}
 		if err != nil {
 			logMiddlewareError(c, err)
 			return apperror.Wrap(apperror.ErrInternal, "failed to store X-EXTERNAL-ID", err)
-		}
-		if !ok {
-			return apperror.New(apperror.ErrConflict, "duplicate X-EXTERNAL-ID")
 		}
 
 		return c.Next()

@@ -75,15 +75,18 @@ func (r *Todo) List(ctx context.Context, limit, offset int) ([]*domain.Todo, err
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	var res []*domain.Todo
 	for rows.Next() {
 		t, scanErr := scanTodo(rows)
 		if scanErr != nil {
+			_ = rows.Close()
 			return nil, scanErr
 		}
 		res = append(res, t)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	return res, rows.Err()
 }

@@ -31,28 +31,28 @@ func (m mockRepo) Update(ctx context.Context, t *domain.Todo) error   { return m
 func (m mockRepo) Delete(ctx context.Context, id domain.TodoID) error { return m.delete(ctx, id) }
 
 type mockCache struct {
-	get    func(context.Context, string) ([]byte, error)
-	set    func(context.Context, string, []byte, time.Duration) error
-	delete func(context.Context, string) error
+	get    func(context.Context, domain.TodoID) (*domain.Todo, bool, error)
+	set    func(context.Context, *domain.Todo, time.Duration) error
+	delete func(context.Context, domain.TodoID) error
 }
 
-func (m mockCache) Get(ctx context.Context, key string) ([]byte, error) {
+func (m mockCache) GetTodo(ctx context.Context, id domain.TodoID) (*domain.Todo, bool, error) {
 	if m.get == nil {
-		return nil, errors.New("cache miss")
+		return nil, false, errors.New("cache miss")
 	}
-	return m.get(ctx, key)
+	return m.get(ctx, id)
 }
-func (m mockCache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+func (m mockCache) SetTodo(ctx context.Context, todo *domain.Todo, ttl time.Duration) error {
 	if m.set == nil {
 		return nil
 	}
-	return m.set(ctx, key, value, ttl)
+	return m.set(ctx, todo, ttl)
 }
-func (m mockCache) Delete(ctx context.Context, key string) error {
+func (m mockCache) DeleteTodo(ctx context.Context, id domain.TodoID) error {
 	if m.delete == nil {
 		return nil
 	}
-	return m.delete(ctx, key)
+	return m.delete(ctx, id)
 }
 
 func assertAppErrorCode(t *testing.T, err error, code apperror.Code) {
@@ -95,8 +95,8 @@ func TestTodoUsecaseGet(t *testing.T) {
 			t.Fatalf("repo should not be called")
 			return nil, nil
 		}},
-		mockCache{get: func(context.Context, string) ([]byte, error) {
-			return []byte(`{"id":"1","title":"a","completed":true,"created_at":"` + now.Format(time.RFC3339) + `","updated_at":"` + now.Format(time.RFC3339) + `"}`), nil
+		mockCache{get: func(context.Context, domain.TodoID) (*domain.Todo, bool, error) {
+			return &domain.Todo{ID: "1", Title: "a", Completed: true, CreatedAt: now, UpdatedAt: now}, true, nil
 		}},
 		time.Second,
 	)
@@ -105,15 +105,20 @@ func TestTodoUsecaseGet(t *testing.T) {
 		t.Fatalf("cache hit get failed: out=%+v err=%v", out, err)
 	}
 
-	// cache invalid JSON -> fallback repo + cache set
+	// cache error -> fallback repo + cache set
 	setCalled := false
 	uFallback := NewTodo(
 		mockRepo{get: func(context.Context, domain.TodoID) (*domain.Todo, error) {
 			return &domain.Todo{ID: "2", Title: "b", CreatedAt: now, UpdatedAt: now}, nil
 		}},
 		mockCache{
-			get: func(context.Context, string) ([]byte, error) { return []byte("{bad"), nil },
-			set: func(context.Context, string, []byte, time.Duration) error { setCalled = true; return nil },
+			get: func(context.Context, domain.TodoID) (*domain.Todo, bool, error) {
+				return nil, false, errors.New("cache error")
+			},
+			set: func(context.Context, *domain.Todo, time.Duration) error {
+				setCalled = true
+				return nil
+			},
 		},
 		time.Second,
 	)
@@ -145,7 +150,7 @@ func TestTodoUsecaseListUpdateDelete(t *testing.T) {
 			update: func(context.Context, *domain.Todo) error { return nil },
 			delete: func(context.Context, domain.TodoID) error { return nil },
 		},
-		mockCache{delete: func(context.Context, string) error { return nil }},
+		mockCache{delete: func(context.Context, domain.TodoID) error { return nil }},
 		time.Second,
 	)
 

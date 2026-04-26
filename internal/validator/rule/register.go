@@ -2,9 +2,8 @@ package rule
 
 import (
 	"github.com/go-playground/validator/v10"
-	"github.com/gofiber/fiber/v2"
 
-	"ms-gofiber/internal/dto"
+	"ms-gofiber/internal/app/adapter/dto"
 	"ms-gofiber/internal/validator/rule/plainbase"
 	"ms-gofiber/internal/validator/rule/structbase"
 	"ms-gofiber/internal/validator/rulekey"
@@ -21,14 +20,19 @@ var customRules = map[string]validator.Func{
 	rulekey.NotBlankRule:           plainbase.ValidateNotBlankRule,
 }
 
-var customStructRules = []fiber.Map{
+type structRule struct {
+	fn     validator.StructLevelFunc
+	target any
+}
+
+var customStructRules = []structRule{
 	{
-		"func": structbase.TodoUpsertStructRule,
-		"type": dto.TodoUpsertRequest{},
+		fn:     structbase.TodoUpsertStructRule,
+		target: dto.TodoUpsertRequest{},
 	},
 	{
-		"func": structbase.PrepareExampleStructRule,
-		"type": dto.PrepareExampleRequest{},
+		fn:     structbase.PrepareExampleStructRule,
+		target: dto.PrepareExampleRequest{},
 	},
 }
 
@@ -39,7 +43,7 @@ func RegisterRule(validate *validator.Validate) error {
 		}
 	}
 	for _, r := range customStructRules {
-		validate.RegisterStructValidation(r["func"].(func(validator.StructLevel)), r["type"])
+		validate.RegisterStructValidation(r.fn, r.target)
 	}
 	return nil
 }

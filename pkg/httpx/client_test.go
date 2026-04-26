@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -9,9 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/christiandoxa/welog/pkg/model"
-	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 	"go.elastic.co/apm/module/apmhttp/v2"
 )
 
@@ -24,6 +22,10 @@ type errCloseBody struct {
 }
 
 func (b errCloseBody) Close() error { return errors.New("close error") }
+
+type noopLogger struct{}
+
+func (noopLogger) Log(context.Context, RequestLog, ResponseLog) {}
 
 func TestHeaderToInterface(t *testing.T) {
 	h := http.Header{}
@@ -41,33 +43,20 @@ func TestHeaderToInterface(t *testing.T) {
 func TestDoBranches(t *testing.T) {
 	origReq := newHTTPRequest
 	origWrap := wrapHTTPClient
-	origLog := logFiberClient
 	t.Cleanup(func() {
 		newHTTPRequest = origReq
 		wrapHTTPClient = origWrap
-		logFiberClient = origLog
 	})
-	logFiberClient = func(*fiber.Ctx, model.TargetRequest, model.TargetResponse) {}
-
-	app := fiber.New()
-	app.Use(func(c *fiber.Ctx) error {
-		c.Locals("logger", logrus.NewEntry(logrus.New()))
-		return c.Next()
-	})
-
 	// new request error
 	newHTTPRequest = func(method, url string, body io.Reader) (*http.Request, error) {
 		return nil, errors.New("new request error")
 	}
-	app.Get("/reqerr", func(c *fiber.Ctx) error {
-		_, _, _, err := Do(c, "GET", "http://example.com", "", nil, nil, 0)
-		if err == nil {
-			t.Fatalf("expected request creation error")
-		}
-		return c.SendStatus(200)
-	})
-	if _, err := app.Test(httptest.NewRequest("GET", "/reqerr", nil)); err != nil {
-		t.Fatalf("fiber test failed: %v", err)
+	_, err := Do(context.Background(), Request{
+		Method: "GET",
+		URL:    "http://example.com",
+	}, noopLogger{})
+	if err == nil {
+		t.Fatalf("expected request creation error")
 	}
 
 	// client do error path
@@ -77,15 +66,13 @@ func TestDoBranches(t *testing.T) {
 			return nil, errors.New("transport error")
 		})}
 	}
-	app.Get("/doerr", func(c *fiber.Ctx) error {
-		_, _, _, err := Do(c, "GET", "http://example.com", "", nil, nil, time.Second)
-		if err == nil {
-			t.Fatalf("expected do error")
-		}
-		return c.SendStatus(200)
-	})
-	if _, err := app.Test(httptest.NewRequest("GET", "/doerr", nil)); err != nil {
-		t.Fatalf("fiber test failed: %v", err)
+	_, err = Do(context.Background(), Request{
+		Method:  "GET",
+		URL:     "http://example.com",
+		Timeout: time.Second,
+	}, noopLogger{})
+	if err == nil {
+		t.Fatalf("expected do error")
 	}
 
 	// success path with close-error branch
@@ -98,18 +85,19 @@ func TestDoBranches(t *testing.T) {
 			}, nil
 		})}
 	}
-	app.Get("/ok", func(c *fiber.Ctx) error {
-		status, body, hdr, err := Do(c, "GET", "http://example.com", "application/json", map[string]string{"A": "B"}, []byte(`{"in":1}`), time.Second)
-		if err != nil {
-			t.Fatalf("unexpected success error: %v", err)
-		}
-		if status != 200 || string(body) != `{"ok":true}` || hdr.Get("X-Test") != "ok" {
-			t.Fatalf("unexpected do response status=%d body=%s hdr=%v", status, string(body), hdr)
-		}
-		return c.SendStatus(200)
-	})
-	if _, err := app.Test(httptest.NewRequest("GET", "/ok", nil)); err != nil {
-		t.Fatalf("fiber test failed: %v", err)
+	res, err := Do(context.Background(), Request{
+		Method:      "GET",
+		URL:         "http://example.com",
+		ContentType: "application/json",
+		Header:      map[string]string{"A": "B"},
+		Body:        []byte(`{"in":1}`),
+		Timeout:     time.Second,
+	}, noopLogger{})
+	if err != nil {
+		t.Fatalf("unexpected success error: %v", err)
+	}
+	if res.StatusCode != 200 || string(res.Body) != `{"ok":true}` || res.Header.Get("X-Test") != "ok" {
+		t.Fatalf("unexpected do response status=%d body=%s hdr=%v", res.StatusCode, string(res.Body), res.Header)
 	}
 
 	// real server success path
@@ -119,17 +107,14 @@ func TestDoBranches(t *testing.T) {
 	}))
 	defer srv.Close()
 	wrapHTTPClient = origWrap
-	app.Get("/real", func(c *fiber.Ctx) error {
-		status, body, hdr, err := Do(c, "GET", srv.URL, "", nil, nil, 0)
-		if err != nil {
-			t.Fatalf("real do error: %v", err)
-		}
-		if status != 200 || string(body) != "pong" || hdr.Get("X-From") != "server" {
-			t.Fatalf("unexpected real do response")
-		}
-		return c.SendStatus(200)
-	})
-	if _, err := app.Test(httptest.NewRequest("GET", "/real", nil)); err != nil {
-		t.Fatalf("fiber test failed: %v", err)
+	res, err = Do(context.Background(), Request{
+		Method: "GET",
+		URL:    srv.URL,
+	}, nil)
+	if err != nil {
+		t.Fatalf("real do error: %v", err)
+	}
+	if res.StatusCode != 200 || string(res.Body) != "pong" || res.Header.Get("X-From") != "server" {
+		t.Fatalf("unexpected real do response")
 	}
 }

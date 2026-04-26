@@ -16,7 +16,9 @@ func TestSecurityHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
+	if err := res.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
+	}
 
 	if res.Header.Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("missing X-Content-Type-Options")

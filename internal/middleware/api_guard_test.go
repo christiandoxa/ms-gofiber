@@ -14,7 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 
-	"ms-gofiber/internal/dto"
+	"ms-gofiber/internal/app/adapter/dto"
 	"ms-gofiber/pkg/apperror"
 )
 
@@ -32,7 +32,7 @@ func withLogger(app *fiber.App) {
 }
 
 func TestDefaultSkipHelpers(t *testing.T) {
-	s := defaultSkippedPaths()
+	s := DefaultSkippedPaths()
 	if !shouldSkipPath("/v1/health", s) {
 		t.Fatalf("health should be skipped")
 	}
@@ -80,7 +80,7 @@ func TestHeaderGuardBranches(t *testing.T) {
 	// success branch + set locals
 	app3 := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
 	withLogger(app3)
-	app3.Use(HeaderGuard(mockReqValidator{}, nil)) // nil to cover defaultSkippedPaths usage
+	app3.Use(HeaderGuard(mockReqValidator{}, nil)) // nil covers default skipped paths.
 	app3.Get("/v1/todos", func(c *fiber.Ctx) error {
 		h, _ := c.Locals("request_header").(map[string]any)
 		_ = h
@@ -94,9 +94,13 @@ func TestHeaderGuardBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
 	var body map[string]any
-	_ = json.NewDecoder(res.Body).Decode(&body)
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if err := res.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
+	}
 	if body["has"] != true {
 		t.Fatalf("expected request_header locals present: %+v", body)
 	}

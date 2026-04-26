@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "golang.go",
+    "sonarsource.sonarlint-vscode",
+    "redhat.vscode-yaml",
+    "editorconfig.editorconfig"
+  ]
+}

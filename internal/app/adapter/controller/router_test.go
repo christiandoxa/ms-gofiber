@@ -29,11 +29,5 @@ func TestRouterRegisterRoutes(t *testing.T) {
 	r := NewRouter(app, NewTodo(uc, mockValidator{}), NewInternal(), NewValidation(mockValidator{}))
 	r.RegisterRoutes()
 
-	res, err := app.Test(httptest.NewRequest("GET", "/v1/health", nil))
-	if err != nil {
-		t.Fatalf("health request failed: %v", err)
-	}
-	if res.StatusCode != 200 {
-		t.Fatalf("expected health 200 got %d", res.StatusCode)
-	}
+	assertStatus(t, app, httptest.NewRequest("GET", "/v1/health", nil), 200)
 }

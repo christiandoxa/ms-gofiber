@@ -9,8 +9,6 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
-
-	"ms-gofiber/internal/config"
 )
 
 func TestEnsureParentDir(t *testing.T) {
@@ -46,22 +44,24 @@ func TestEnsureSchema(t *testing.T) {
 }
 
 func TestNewSQLiteDB(t *testing.T) {
-	cfg := &config.Config{SQLitePath: filepath.Join(t.TempDir(), "x", "app.db")}
-	db, err := NewSQLiteDB(context.Background(), cfg)
+	opts := SQLiteOptions{Path: filepath.Join(t.TempDir(), "x", "app.db")}
+	db, err := NewSQLiteDB(context.Background(), opts)
 	if err != nil {
 		t.Fatalf("NewSQLiteDB error: %v", err)
 	}
-	defer db.Close()
 
 	var count int
 	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='todos'`).Scan(&count); err != nil {
 		t.Fatalf("query schema error: %v", err)
 	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
 	if count != 1 {
 		t.Fatalf("expected todos table exists")
 	}
 
-	bad := &config.Config{SQLitePath: "/proc/1/forbidden/db.sqlite"}
+	bad := SQLiteOptions{Path: "/proc/1/forbidden/db.sqlite"}
 	if _, err := NewSQLiteDB(context.Background(), bad); err == nil {
 		t.Fatalf("expected NewSQLiteDB error")
 	}
@@ -75,8 +75,8 @@ func TestNewSQLiteDBOpenError(t *testing.T) {
 		return nil, errors.New("open error")
 	}
 
-	cfg := &config.Config{SQLitePath: filepath.Join(t.TempDir(), "x", "open-error.db")}
-	if _, err := NewSQLiteDB(context.Background(), cfg); err == nil {
+	opts := SQLiteOptions{Path: filepath.Join(t.TempDir(), "x", "open-error.db")}
+	if _, err := NewSQLiteDB(context.Background(), opts); err == nil {
 		t.Fatalf("expected open error")
 	}
 }
@@ -100,8 +100,8 @@ func TestNewSQLiteDBPingError(t *testing.T) {
 	openSQLiteDB = func(string, string) (*sql.DB, error) { return db, nil }
 	pingSQLiteDB = func(context.Context, *sql.DB) error { return errors.New("ping error") }
 
-	cfg := &config.Config{SQLitePath: filepath.Join(t.TempDir(), "x", "ping-error.db")}
-	if _, err := NewSQLiteDB(context.Background(), cfg); err == nil {
+	opts := SQLiteOptions{Path: filepath.Join(t.TempDir(), "x", "ping-error.db")}
+	if _, err := NewSQLiteDB(context.Background(), opts); err == nil {
 		t.Fatalf("expected ping error")
 	}
 }
@@ -117,8 +117,8 @@ func TestNewSQLiteDBEnsureSchemaError(t *testing.T) {
 	ensureSQLiteSchema = func(context.Context, *sql.DB) error { return errors.New("schema error") }
 	pingSQLiteDB = func(context.Context, *sql.DB) error { return nil }
 
-	cfg := &config.Config{SQLitePath: filepath.Join(t.TempDir(), "x", "schema-error.db")}
-	if _, err := NewSQLiteDB(context.Background(), cfg); err == nil {
+	opts := SQLiteOptions{Path: filepath.Join(t.TempDir(), "x", "schema-error.db")}
+	if _, err := NewSQLiteDB(context.Background(), opts); err == nil {
 		t.Fatalf("expected ensure schema error")
 	}
 }

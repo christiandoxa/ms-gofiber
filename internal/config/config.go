@@ -26,23 +26,46 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	// Load .env bila ada; jika tidak ada, biarkan saja (pakai env OS)
 	_ = godotenv.Load()
+
+	appPort, err := getenvInt("APP_PORT", 8080)
+	if err != nil {
+		return nil, err
+	}
+	readTimeout, err := getenvInt("APP_READ_TIMEOUT_SEC", 10)
+	if err != nil {
+		return nil, err
+	}
+	writeTimeout, err := getenvInt("APP_WRITE_TIMEOUT_SEC", 10)
+	if err != nil {
+		return nil, err
+	}
+	redisDB, err := getenvInt("REDIS_DB", 0)
+	if err != nil {
+		return nil, err
+	}
+	redisTTL, err := getenvInt("REDIS_DEFAULT_TTL_SEC", 60)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		AppName:         getenv("APP_NAME", "ms-gofiber"),
 		AppEnv:          getenv("APP_ENV", "local"),
 		AppHost:         getenv("APP_HOST", "0.0.0.0"),
-		AppPort:         getint("APP_PORT", 8080),
-		AppReadTimeout:  getint("APP_READ_TIMEOUT_SEC", 10),
-		AppWriteTimeout: getint("APP_WRITE_TIMEOUT_SEC", 10),
+		AppPort:         appPort,
+		AppReadTimeout:  readTimeout,
+		AppWriteTimeout: writeTimeout,
 
 		SQLitePath: getenv("SQLITE_PATH", "data/ms-gofiber.db"),
 
 		RedisAddr:       getenv("REDIS_ADDR", "localhost:6379"),
-		RedisDB:         getint("REDIS_DB", 0),
+		RedisDB:         redisDB,
 		RedisPassword:   getenv("REDIS_PASSWORD", ""),
-		RedisDefaultTTL: getint("REDIS_DEFAULT_TTL_SEC", 60),
+		RedisDefaultTTL: redisTTL,
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }
@@ -53,17 +76,61 @@ func getenv(k, def string) string {
 	}
 	return def
 }
-func getint(k string, def int) int {
+
+func getenvInt(k string, def int) (int, error) {
 	if v := os.Getenv(k); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return 0, fmt.Errorf("invalid integer for %s: %w", k, err)
 		}
+		return n, nil
 	}
-	return def
+	return def, nil
+}
+
+func (c *Config) Validate() error {
+	if c.AppName == "" {
+		return fmt.Errorf("APP_NAME is required")
+	}
+	if c.AppHost == "" {
+		return fmt.Errorf("APP_HOST is required")
+	}
+	if c.AppPort <= 0 || c.AppPort > 65535 {
+		return fmt.Errorf("APP_PORT must be between 1 and 65535")
+	}
+	if c.AppReadTimeout <= 0 {
+		return fmt.Errorf("APP_READ_TIMEOUT_SEC must be positive")
+	}
+	if c.AppWriteTimeout <= 0 {
+		return fmt.Errorf("APP_WRITE_TIMEOUT_SEC must be positive")
+	}
+	if c.SQLitePath == "" {
+		return fmt.Errorf("SQLITE_PATH is required")
+	}
+	if c.RedisAddr == "" {
+		return fmt.Errorf("REDIS_ADDR is required")
+	}
+	if c.RedisDB < 0 {
+		return fmt.Errorf("REDIS_DB must be zero or positive")
+	}
+	if c.RedisDefaultTTL <= 0 {
+		return fmt.Errorf("REDIS_DEFAULT_TTL_SEC must be positive")
+	}
+	return nil
 }
 
 func (c *Config) ListenAddr() string {
 	return fmt.Sprintf("%s:%d", c.AppHost, c.AppPort)
 }
-func (c *Config) ReadTimeout() time.Duration  { return time.Duration(c.AppReadTimeout) * time.Second }
-func (c *Config) WriteTimeout() time.Duration { return time.Duration(c.AppWriteTimeout) * time.Second }
+
+func (c *Config) ReadTimeout() time.Duration {
+	return time.Duration(c.AppReadTimeout) * time.Second
+}
+
+func (c *Config) WriteTimeout() time.Duration {
+	return time.Duration(c.AppWriteTimeout) * time.Second
+}
+
+func (c *Config) RedisDefaultTTLDuration() time.Duration {
+	return time.Duration(c.RedisDefaultTTL) * time.Second
+}

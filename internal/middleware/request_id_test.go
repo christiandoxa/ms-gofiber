@@ -24,11 +24,13 @@ func TestRequestID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
 
 	var body map[string]any
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatalf("decode failed: %v", err)
+	}
+	if err := res.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
 	}
 	if body["header"] != "custom-id" || body["local"] != "custom-id" {
 		t.Fatalf("unexpected body: %+v", body)
@@ -49,11 +51,13 @@ func TestRequestIDGeneratedWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
 
 	var body map[string]any
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatalf("decode failed: %v", err)
+	}
+	if err := res.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
 	}
 	header, _ := body["header"].(string)
 	local, _ := body["local"].(string)

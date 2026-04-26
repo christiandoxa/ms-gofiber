@@ -4,24 +4,23 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 	"go.elastic.co/apm/v2"
 
+	"ms-gofiber/internal/app/adapter/dto"
 	"ms-gofiber/internal/app/adapter/presenter"
 	"ms-gofiber/internal/app/application/usecase"
 	"ms-gofiber/internal/app/domain"
-	"ms-gofiber/internal/dto"
 	"ms-gofiber/internal/validator"
 	"ms-gofiber/pkg/apperror"
 	"ms-gofiber/pkg/respond"
 )
 
 type Todo struct {
-	usecase  usecase.ITodo
+	usecase  usecase.TodoUseCase
 	validate RequestValidator
 }
 
-func NewTodo(usecase usecase.ITodo, v RequestValidator) *Todo {
+func NewTodo(usecase usecase.TodoUseCase, v RequestValidator) *Todo {
 	return &Todo{
 		usecase:  usecase,
 		validate: v,
@@ -35,7 +34,6 @@ func (h *Todo) Create(c *fiber.Ctx) error {
 
 	var req dto.TodoUpsertRequest
 	if err := c.BodyParser(&req); err != nil {
-		c.Locals("logger").(*logrus.Entry).Error("Something went wrong")
 		apm.CaptureError(ctx, err).Send()
 		return apperror.New(apperror.ErrBadRequest, "invalid JSON body")
 	}

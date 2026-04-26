@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ type fakeServer struct {
 	listenErr   error
 	shutdownErr error
 	listenBlock chan struct{}
+	unblock     sync.Once
 }
 
 func (s *fakeServer) Listen(string) error {
@@ -26,8 +28,9 @@ func (s *fakeServer) Listen(string) error {
 
 func (s *fakeServer) ShutdownWithContext(context.Context) error {
 	if s.listenBlock != nil {
-		close(s.listenBlock)
-		s.listenBlock = nil
+		s.unblock.Do(func() {
+			close(s.listenBlock)
+		})
 	}
 	return s.shutdownErr
 }

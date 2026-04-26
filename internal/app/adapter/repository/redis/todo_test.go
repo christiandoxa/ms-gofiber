@@ -7,6 +7,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+
+	"ms-gofiber/internal/app/domain"
 )
 
 func TestTodoCacheCRUD(t *testing.T) {
@@ -20,17 +22,29 @@ func TestTodoCacheCRUD(t *testing.T) {
 	cache := NewTodo(client)
 	ctx := context.Background()
 
-	if err := cache.Set(ctx, "k", []byte("v"), time.Minute); err != nil {
+	todo := &domain.Todo{ID: "1", Title: "cached"}
+	if err := cache.SetTodo(ctx, todo, time.Minute); err != nil {
 		t.Fatalf("set error: %v", err)
 	}
-	v, err := cache.Get(ctx, "k")
+	got, found, err := cache.GetTodo(ctx, "1")
 	if err != nil {
 		t.Fatalf("get error: %v", err)
 	}
-	if string(v) != "v" {
-		t.Fatalf("unexpected value: %s", v)
+	if !found || got.ID != "1" || got.Title != "cached" {
+		t.Fatalf("unexpected value: found=%v todo=%+v", found, got)
 	}
-	if err := cache.Delete(ctx, "k"); err != nil {
+	if err := cache.DeleteTodo(ctx, "1"); err != nil {
 		t.Fatalf("delete error: %v", err)
+	}
+	_, found, err = cache.GetTodo(ctx, "1")
+	if err != nil || found {
+		t.Fatalf("expected cache miss after delete, found=%v err=%v", found, err)
+	}
+
+	if err := mr.Set(todoKey("bad"), "{bad"); err != nil {
+		t.Fatalf("set invalid payload: %v", err)
+	}
+	if _, _, err := cache.GetTodo(ctx, "bad"); err == nil {
+		t.Fatalf("expected invalid cache payload error")
 	}
 }

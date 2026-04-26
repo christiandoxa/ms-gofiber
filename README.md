@@ -1,8 +1,8 @@
 # ms-gofiber — Go Fiber Boilerplate
 
-A production-ready **Go Fiber** boilerplate focused on **clean architecture + DDD**, **first-class observability** (
-Elastic **APM** end-to-end), structured **logging** with **welog**, **SQLite**, **Redis (go-redis/v9)**, and a
-**validator** layer with both field-level and struct-level custom rules.
+A production-ready **Go Fiber** baseline focused on **clean architecture**, **first-class observability**
+(Elastic **APM** end-to-end), structured **logging** with **welog**, **SQLite**, **Redis (go-redis/v9)**, and a
+validator layer with both field-level and struct-level custom rules.
 It also includes a **mandatory self-hit** outbound client example that logs with welog and traces with APM.
 
 ---
@@ -23,17 +23,17 @@ It also includes a **mandatory self-hit** outbound client example that logs with
 
     * **Plain-base** rules (field validations),
     * **Struct-base** rules (cross-field/semantic),
-    * **Rule registration model** mirrors your provided pattern.
+    * **Typed rule registration** for field-level and struct-level validators.
 * **Response remapping via map** (no `switch`) for consistent API envelopes.
 * **Self-hit endpoint** demonstrating outbound HTTP with APM + welog client logging.
-* **Clean architecture** layering ala `goilerplate`: `internal/app/domain` → `internal/app/application/usecase` →
+* **Clean architecture** layering: `internal/app/domain` → `internal/app/application/usecase` →
   `internal/app/adapter`.
 
 ---
 
 ## Tech Stack
 
-* Go `1.22+`
+* Go `1.26`
 * Fiber `v2`
 * Elastic APM modules (`apmfiber`, `apmhttp`)
 * SQLite (`modernc.org/sqlite`)
@@ -59,11 +59,10 @@ ms-gofiber/
 │     └─ main.go
 ├─ internal/
 │  ├─ app/
-│  │  ├─ adapter/          # controller + presenter + repository impl
+│  │  ├─ adapter/          # controller, request DTOs, presenter, repository impl
 │  │  ├─ application/      # usecase layer
 │  │  └─ domain/           # entities + repository interfaces
 │  ├─ config/              # config loader (.env via godotenv)
-│  ├─ dto/                 # request DTOs validated with validator
 │  ├─ middleware/          # global middlewares (error, headers, request id)
 │  └─ validator/           # custom rules: plainbase + structbase + register
 ├─ pkg/
@@ -71,7 +70,7 @@ ms-gofiber/
 │  ├─ apperror/            # typed app errors
 │  ├─ cache/               # Redis client construction
 │  ├─ db/                  # SQLite connection + schema bootstrap
-│  ├─ httpx/               # APM-wrapped HTTP client + welog client logs
+│  ├─ httpx/               # context-first APM-wrapped HTTP client
 │  └─ respond/             # response envelope + code→HTTP map
 ```
 
@@ -81,7 +80,7 @@ ms-gofiber/
 
 ### Prerequisites
 
-* Go `1.22+`
+* Go `1.26`
 * SQLite & Redis
 * (Optional) Elastic APM Server if you want tracing visualized
 
@@ -110,9 +109,9 @@ go mod tidy
 
 ### 3) Prepare database
 
-Schema akan dibuat otomatis saat aplikasi start.
+The schema is created automatically when the application starts.
 
-Opsional, jika ingin inisialisasi manual:
+Optional manual initialization:
 
 ```bash
 sqlite3 data/ms-gofiber.db < sql/schema.sql
@@ -132,7 +131,7 @@ Server listens on `APP_HOST:APP_PORT` (default `0.0.0.0:8080`).
 
 ### Required Headers (for protected endpoints)
 
-Middleware `HeaderGuard` + `ExternalIDGuard` mewajibkan header ini pada endpoint non-skip:
+Middleware `HeaderGuard` + `ExternalIDGuard` require these headers on non-skipped endpoints:
 
 ```
 X-PARTNER-ID: <alphanumeric, max 36>
@@ -206,7 +205,7 @@ GET /v1/client/self-call
 ```
 
 * Calls `GET /v1/internal/echo` via the APM-wrapped HTTP client.
-* Logs client request/response using `welog.LogFiberClient(...)`.
+* Logs client request/response from the Fiber adapter using `welog.LogFiberClient(...)`.
 * Returns upstream status and body in the standard success envelope.
 
 ### Validator Demo (plain + struct base)
@@ -268,26 +267,26 @@ Example DTO (validated in handlers):
 
 ```go
 type TodoUpsertRequest struct {
-Title     string `json:"title" validate:"required,min=3,max=100,alphanum_with_space"`
-Completed bool   `json:"completed"`
+	Title     string `json:"title" validate:"required,min=3,max=100,alphanum_with_space"`
+	Completed bool   `json:"completed"`
 }
 ```
 
 Struct-level rule examples:
 
 * `TodoUpsertStructRule`: enforce trim + non-blank title.
-* `PrepareExampleStructRule`: validasi kombinasi `terminalType` vs `osType`/`osVersion` (adaptasi dari pola
-  `PrepareStructRule` di project referensi).
+* `PrepareExampleStructRule`: validates the `terminalType` versus `osType`/`osVersion` combination.
 
-**Rule registration** follows a map-based model:
+**Rule registration** uses typed entries:
 
 ```go
 var customRules = map[string]validator.Func{
-// field rules...
+	// field rules...
 }
-var customStructRules = []fiber.Map{
-{ "func": structbase.TodoUpsertStructRule, "type": dto.TodoUpsertRequest{} },
-{ "func": structbase.PrepareExampleStructRule, "type": dto.PrepareExampleRequest{} },
+
+type structRule struct {
+	fn     validator.StructLevelFunc
+	target any
 }
 ```
 
@@ -303,7 +302,7 @@ var customStructRules = []fiber.Map{
 * Per-request logger is available on the context:
 
   ```go
-  c.Locals("logger").(*logrus.Entry).Error("Something went wrong")
+  logger, ok := c.Locals("logger").(*logrus.Entry)
   ```
 * **Client logs** for outbound calls use:
 
@@ -320,7 +319,7 @@ var customStructRules = []fiber.Map{
 * **Inbound**: `apmfiber.Middleware()` creates a transaction for each HTTP request (and recovers panics).
 * **Outbound HTTP**: `apmhttp.WrapClient(...)` automatically creates spans for downstream calls (context propagated from
   `c.UserContext()`).
-* **SQLite**: operasi repository dibungkus span APM (`TodoRepo.*`) dengan context request.
+* **SQLite**: repository operations are wrapped in APM spans (`TodoRepo.*`) using the request context.
 * **Redis**: Custom **hook** creates spans for `ProcessHook`, `ProcessPipelineHook`, and `DialHook`.
 
 > Ensure your APM environment variables are set (see `.env.example`).
@@ -331,11 +330,13 @@ var customStructRules = []fiber.Map{
 
 ## Clean Architecture / DDD
 
-* **Domain** (`internal/app/domain`): entities + repository ports + domain-level errors, tanpa ketergantungan framework.
-* **Application** (`internal/app/application/usecase`): business flow aplikasi, orkestrasi repository/cache via
-  interface.
-* **Adapter** (`internal/app/adapter`): Fiber controller, presenter, serta implementasi repository (SQLite/Redis).
+* **Domain** (`internal/app/domain`): entities, repository ports, and domain-level errors with no framework dependency.
+* **Application** (`internal/app/application/usecase`): application business flow and repository/cache orchestration via
+  interfaces.
+* **Adapter** (`internal/app/adapter`): Fiber controllers, presenters, and repository implementations (SQLite/Redis).
 * **Cross-cutting** (`pkg/...`): DB/Redis constructors, APM hooks, HTTP client, response mapping, app errors.
+
+See [docs/architecture.md](docs/architecture.md) for the full clean architecture rules and design pattern policy.
 
 ---
 
@@ -369,8 +370,8 @@ ELASTIC_APM_RECORDING=true
 
 ## Extending
 
-* **New domain**: create entity + repository interface di `internal/app/domain`, lanjutkan usecase di
-  `internal/app/application/usecase`, lalu implement adapter di `internal/app/adapter`.
+* **New domain**: create the entity and repository interface in `internal/app/domain`, add the usecase in
+  `internal/app/application/usecase`, then implement adapters in `internal/app/adapter`.
 * **New validators**: implement in `internal/validator/rule/plainbase` or `structbase`, register in
   `internal/validator/rule/register.go`.
 * **New outbound client**: add helper in `pkg/httpx` or a domain-specific gateway; always pass `c.UserContext()` and log
@@ -384,7 +385,7 @@ ELASTIC_APM_RECORDING=true
   `c.UserContext()`.
 * **No welog client logs**: confirm `welog.NewFiber(...)` is mounted and your outbound path calls
   `welog.LogFiberClient(...)` (already wired in `pkg/httpx` and self-hit).
-* **DB errors**: pastikan `SQLITE_PATH` valid dan proses punya izin write ke folder target.
+* **DB errors**: ensure `SQLITE_PATH` is valid and the process can write to the target directory.
 * **Redis errors**: verify `REDIS_ADDR` and permissions.
 * **Validation errors**: see `fields` object in the error envelope for tag names.
 
@@ -393,6 +394,23 @@ ELASTIC_APM_RECORDING=true
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
+
+---
+
+## Developer Tooling
+
+Baseline commands are documented in [docs/tooling.md](docs/tooling.md) and exposed through `Makefile` targets:
+
+```bash
+make test
+make lint
+make fmt
+make run
+```
+
+VSCode users should install `golang.go` and `sonarsource.sonarlint-vscode`. The workspace recommendations live in
+[.vscode/extensions.json](.vscode/extensions.json), with SonarLint connected-mode placeholders in
+[.vscode/settings.json](.vscode/settings.json).
 
 ---
 
@@ -415,5 +433,3 @@ curl -X POST http://localhost:8080/v1/todos \
   -d '{"title":"Demo Todo","completed":false}'
 curl http://localhost:8080/v1/client/self-call
 ```
-
-Happy building!

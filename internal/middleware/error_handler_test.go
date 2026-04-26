@@ -46,13 +46,15 @@ func TestErrorHandlerBranches(t *testing.T) {
 		if err != nil {
 			t.Fatalf("request %s failed: %v", tc.path, err)
 		}
-		defer res.Body.Close()
 		if res.StatusCode != tc.status {
 			t.Fatalf("path %s expected status %d got %d", tc.path, tc.status, res.StatusCode)
 		}
 		var body map[string]any
 		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 			t.Fatalf("decode %s failed: %v", tc.path, err)
+		}
+		if err := res.Body.Close(); err != nil {
+			t.Fatalf("close response body: %v", err)
 		}
 		if body["code"] != tc.code {
 			t.Fatalf("path %s expected code %s got %v", tc.path, tc.code, body["code"])

@@ -3,17 +3,22 @@ package cache
 import (
 	"github.com/redis/go-redis/v9"
 
-	"ms-gofiber/internal/config"
 	"ms-gofiber/pkg/apmredis"
 )
 
-func NewRedis(cfg *config.Config) *redis.Client {
+type RedisOptions struct {
+	Addr     string
+	Password string
+	DB       int
+}
+
+func NewRedis(opts RedisOptions) *redis.Client {
 	r := redis.NewClient(&redis.Options{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
+		Addr:     opts.Addr,
+		Password: opts.Password,
+		DB:       opts.DB,
 	})
-	// APM: trace semua command redis dengan context dari handler
+
 	r.AddHook(apmredis.NewHook())
 	return r
 }

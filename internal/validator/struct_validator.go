@@ -15,7 +15,7 @@ type StructValidator struct {
 
 func NewStructValidator() *StructValidator {
 	v := v10.New()
-	_ = rule.RegisterRule(v) // daftar semua custom rules
+	_ = rule.RegisterRule(v)
 	return &StructValidator{v: v}
 }
 

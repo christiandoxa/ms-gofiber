@@ -9,8 +9,6 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
-
-	"ms-gofiber/internal/config"
 )
 
 var (
@@ -23,12 +21,16 @@ var (
 	ensureSQLiteSchema = ensureSchema
 )
 
-func NewSQLiteDB(ctx context.Context, cfg *config.Config) (*sql.DB, error) {
-	if err := ensureParentDir(cfg.SQLitePath); err != nil {
+type SQLiteOptions struct {
+	Path string
+}
+
+func NewSQLiteDB(ctx context.Context, opts SQLiteOptions) (*sql.DB, error) {
+	if err := ensureParentDir(opts.Path); err != nil {
 		return nil, err
 	}
 
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", cfg.SQLitePath)
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", opts.Path)
 	db, err := openSQLiteDB("sqlite", dsn)
 	if err != nil {
 		return nil, err
