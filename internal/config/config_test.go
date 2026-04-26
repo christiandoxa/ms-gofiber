@@ -40,6 +40,9 @@ func TestLoadWithDefaultsAndOverrides(t *testing.T) {
 	if cfg.ReadTimeout() != 12*time.Second || cfg.WriteTimeout() != 13*time.Second {
 		t.Fatalf("unexpected timeout read=%v write=%v", cfg.ReadTimeout(), cfg.WriteTimeout())
 	}
+	if cfg.RedisDefaultTTLDuration() != 77*time.Second {
+		t.Fatalf("unexpected redis ttl: %v", cfg.RedisDefaultTTLDuration())
+	}
 }
 
 func TestHelpersFallback(t *testing.T) {
@@ -60,13 +63,69 @@ func TestHelpersFallback(t *testing.T) {
 }
 
 func TestLoadInvalidConfig(t *testing.T) {
-	t.Setenv("APP_PORT", "nan")
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "APP_PORT") {
-		t.Fatalf("expected APP_PORT error, got %v", err)
+	cases := []struct {
+		key   string
+		value string
+	}{
+		{"APP_PORT", "nan"},
+		{"APP_READ_TIMEOUT_SEC", "nan"},
+		{"APP_WRITE_TIMEOUT_SEC", "nan"},
+		{"REDIS_DB", "nan"},
+		{"REDIS_DEFAULT_TTL_SEC", "nan"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.key, func(t *testing.T) {
+			t.Setenv(tc.key, tc.value)
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), tc.key) {
+				t.Fatalf("expected %s error, got %v", tc.key, err)
+			}
+		})
 	}
 
 	t.Setenv("APP_PORT", "0")
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "APP_PORT") {
 		t.Fatalf("expected APP_PORT range error, got %v", err)
+	}
+}
+
+func TestValidateBranches(t *testing.T) {
+	base := Config{
+		AppName:         "app",
+		AppHost:         "127.0.0.1",
+		AppPort:         8080,
+		AppReadTimeout:  1,
+		AppWriteTimeout: 1,
+		SQLitePath:      "data/app.db",
+		RedisAddr:       "127.0.0.1:6379",
+		RedisDB:         0,
+		RedisDefaultTTL: 1,
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("expected valid config, got %v", err)
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{"app name", func(c *Config) { c.AppName = "" }, "APP_NAME"},
+		{"app host", func(c *Config) { c.AppHost = "" }, "APP_HOST"},
+		{"app port high", func(c *Config) { c.AppPort = 65536 }, "APP_PORT"},
+		{"read timeout", func(c *Config) { c.AppReadTimeout = 0 }, "APP_READ_TIMEOUT_SEC"},
+		{"write timeout", func(c *Config) { c.AppWriteTimeout = 0 }, "APP_WRITE_TIMEOUT_SEC"},
+		{"sqlite path", func(c *Config) { c.SQLitePath = "" }, "SQLITE_PATH"},
+		{"redis addr", func(c *Config) { c.RedisAddr = "" }, "REDIS_ADDR"},
+		{"redis db", func(c *Config) { c.RedisDB = -1 }, "REDIS_DB"},
+		{"redis ttl", func(c *Config) { c.RedisDefaultTTL = 0 }, "REDIS_DEFAULT_TTL_SEC"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := base
+			tc.mutate(&cfg)
+			if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected %s validation error, got %v", tc.want, err)
+			}
+		})
 	}
 }

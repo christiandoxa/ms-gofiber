@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	_ "modernc.org/sqlite"
 
 	"ms-gofiber/internal/app/domain"
@@ -119,6 +120,24 @@ func TestTodoRepositoryClosedDBBranches(t *testing.T) {
 	}
 	if err := repo.Delete(ctx, "1"); err == nil {
 		t.Fatalf("expected delete error on closed db")
+	}
+}
+
+func TestTodoRepositoryListCloseError(t *testing.T) {
+	db := setupDB(t)
+	repo := NewTodo(db)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	createTodo(t, repo, ctx, "close-error", "x", false, now)
+
+	expected := errors.New("close rows error")
+	patches := gomonkey.ApplyGlobalVar(&closeRows, func(*sql.Rows) error {
+		return expected
+	})
+	defer patches.Reset()
+
+	if _, err := repo.List(ctx, 1, 0); !errors.Is(err, expected) {
+		t.Fatalf("expected close rows error, got %v", err)
 	}
 }
 

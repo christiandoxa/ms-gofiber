@@ -43,7 +43,12 @@ Use the documented tooling before handoff when relevant:
 ```bash
 make fmt
 make test
+make race
+make coverage
 make lint
 ```
 
 If a tool is unavailable locally, report the missing tool and the command that could not run.
+
+Coverage is a hard baseline gate. Keep total statement coverage at `100.0%`; use focused tests and gomonkey-based seams
+for external or hard-to-trigger branches instead of weakening production code.

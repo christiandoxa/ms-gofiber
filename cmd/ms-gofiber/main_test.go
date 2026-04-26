@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -86,6 +87,27 @@ func TestRunBranches(t *testing.T) {
 	if err := run(); err != nil {
 		t.Fatalf("expected success run, got %v", err)
 	}
+}
+
+func TestDefaultBuildApp(t *testing.T) {
+	cfg := &config.Config{
+		AppHost:         "127.0.0.1",
+		AppPort:         18080,
+		AppReadTimeout:  1,
+		AppWriteTimeout: 1,
+		SQLitePath:      filepath.Join(t.TempDir(), "db", "app.db"),
+		RedisAddr:       "127.0.0.1:1",
+		RedisDefaultTTL: 1,
+	}
+
+	server, closer, err := buildApp(cfg)
+	if err != nil {
+		t.Fatalf("build app: %v", err)
+	}
+	if server == nil || closer == nil {
+		t.Fatalf("expected server and closer")
+	}
+	closer()
 }
 
 func TestMainFunction(t *testing.T) {

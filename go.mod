@@ -3,6 +3,7 @@ module ms-gofiber
 go 1.26
 
 require (
+	github.com/agiledragon/gomonkey/v2 v2.14.0
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/christiandoxa/welog v1.2.1
 	github.com/go-playground/validator/v10 v10.30.2

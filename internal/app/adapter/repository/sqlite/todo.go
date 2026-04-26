@@ -15,6 +15,10 @@ var rowsAffected = func(res sql.Result) (int64, error) {
 	return res.RowsAffected()
 }
 
+var closeRows = func(rows *sql.Rows) error {
+	return rows.Close()
+}
+
 // Todo is sqlite implementation of todo repository
 type Todo struct {
 	db *sql.DB
@@ -80,12 +84,12 @@ func (r *Todo) List(ctx context.Context, limit, offset int) ([]*domain.Todo, err
 	for rows.Next() {
 		t, scanErr := scanTodo(rows)
 		if scanErr != nil {
-			_ = rows.Close()
+			_ = closeRows(rows)
 			return nil, scanErr
 		}
 		res = append(res, t)
 	}
-	if err := rows.Close(); err != nil {
+	if err := closeRows(rows); err != nil {
 		return nil, err
 	}
 	return res, rows.Err()

@@ -61,3 +61,19 @@ func TestErrorHandlerBranches(t *testing.T) {
 		}
 	}
 }
+
+func TestErrorHandlerWithoutLogger(t *testing.T) {
+	app := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
+	app.Get("/unknown", func(c *fiber.Ctx) error { return errors.New("x") })
+
+	res, err := app.Test(httptest.NewRequest("GET", "/unknown", nil))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if res.StatusCode != fiber.StatusInternalServerError {
+		t.Fatalf("expected 500 got %d", res.StatusCode)
+	}
+	if err := res.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
+	}
+}

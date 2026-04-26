@@ -10,6 +10,8 @@ import (
 	"ms-gofiber/pkg/httpx"
 )
 
+var logFiberClient = welog.LogFiberClient
+
 type fiberHTTPLogger struct {
 	ctx *fiber.Ctx
 }
@@ -18,7 +20,7 @@ func (l fiberHTTPLogger) Log(_ context.Context, req httpx.RequestLog, res httpx.
 	if l.ctx == nil {
 		return
 	}
-	welog.LogFiberClient(l.ctx, toTargetRequest(req), toTargetResponse(res))
+	logFiberClient(l.ctx, toTargetRequest(req), toTargetResponse(res))
 }
 
 func toTargetRequest(in httpx.RequestLog) model.TargetRequest {

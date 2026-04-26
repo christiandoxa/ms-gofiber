@@ -7,6 +7,7 @@ Use these commands from the repository root:
 ```bash
 make fmt
 make test
+make race
 make coverage
 make lint
 make sonar
@@ -17,8 +18,10 @@ Equivalent raw commands:
 
 ```bash
 go fmt ./...
-go test ./...
-go test -coverprofile=coverage.out ./...
+go test -gcflags=all=-l ./...
+go test -race -gcflags=all=-l ./...
+go test -gcflags=all=-l -covermode=count -coverprofile=coverage.out ./...
+bash scripts/check-coverage.sh coverage.out 100.0
 golangci-lint run ./...
 sonar-scanner
 go run ./cmd/ms-gofiber
@@ -40,6 +43,12 @@ The baseline lint configuration is `.golangci.yml`. It enables a focused starter
 * `misspell`
 
 Install `golangci-lint` before running `make lint`.
+
+## Coverage
+
+`make coverage` is a hard gate. It fails unless total statement coverage is exactly `100.0%`.
+
+`GO_TEST_FLAGS` defaults to `-gcflags=all=-l` so gomonkey-based tests are stable and do not require production logic changes.
 
 ## SonarQube
 

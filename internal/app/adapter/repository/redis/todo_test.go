@@ -2,9 +2,11 @@ package redis
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
@@ -46,5 +48,28 @@ func TestTodoCacheCRUD(t *testing.T) {
 	}
 	if _, _, err := cache.GetTodo(ctx, "bad"); err == nil {
 		t.Fatalf("expected invalid cache payload error")
+	}
+}
+
+func TestTodoCacheErrorBranches(t *testing.T) {
+	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
+	cache := NewTodo(client)
+	ctx := context.Background()
+
+	if err := client.Close(); err != nil {
+		t.Fatalf("close redis client: %v", err)
+	}
+	if _, _, err := cache.GetTodo(ctx, "closed"); err == nil {
+		t.Fatalf("expected closed client get error")
+	}
+
+	expected := errors.New("marshal error")
+	patches := gomonkey.ApplyGlobalVar(&marshalTodo, func(any) ([]byte, error) {
+		return nil, expected
+	})
+	defer patches.Reset()
+
+	if err := cache.SetTodo(ctx, &domain.Todo{ID: "broken"}, time.Minute); !errors.Is(err, expected) {
+		t.Fatalf("expected marshal error, got %v", err)
 	}
 }
