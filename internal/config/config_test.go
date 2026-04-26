@@ -20,6 +20,7 @@ func TestLoadWithDefaultsAndOverrides(t *testing.T) {
 	t.Setenv("REDIS_DB", "2")
 	t.Setenv("REDIS_PASSWORD", "p")
 	t.Setenv("REDIS_DEFAULT_TTL_SEC", "77")
+	t.Setenv("REDIS_PING_TIMEOUT_MS", "1500")
 
 	cfg, err := Load()
 	if err != nil {
@@ -32,7 +33,7 @@ func TestLoadWithDefaultsAndOverrides(t *testing.T) {
 	if cfg.SQLitePath != "tmp/test.db" {
 		t.Fatalf("unexpected sqlite path: %s", cfg.SQLitePath)
 	}
-	if cfg.RedisAddr != "127.0.0.1:6380" || cfg.RedisDB != 2 || cfg.RedisPassword != "p" || cfg.RedisDefaultTTL != 77 {
+	if cfg.RedisAddr != "127.0.0.1:6380" || cfg.RedisDB != 2 || cfg.RedisPassword != "p" || cfg.RedisDefaultTTL != 77 || cfg.RedisPingTimeoutMs != 1500 {
 		t.Fatalf("unexpected redis config: %+v", cfg)
 	}
 	if cfg.ListenAddr() != "127.0.0.1:9091" {
@@ -43,6 +44,9 @@ func TestLoadWithDefaultsAndOverrides(t *testing.T) {
 	}
 	if cfg.RedisDefaultTTLDuration() != 77*time.Second {
 		t.Fatalf("unexpected redis ttl: %v", cfg.RedisDefaultTTLDuration())
+	}
+	if cfg.RedisPingTimeout() != 1500*time.Millisecond {
+		t.Fatalf("unexpected redis ping timeout: %v", cfg.RedisPingTimeout())
 	}
 }
 
@@ -113,6 +117,7 @@ func TestLoadInvalidConfig(t *testing.T) {
 		{"APP_WRITE_TIMEOUT_SEC", "nan"},
 		{"REDIS_DB", "nan"},
 		{"REDIS_DEFAULT_TTL_SEC", "nan"},
+		{"REDIS_PING_TIMEOUT_MS", "nan"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.key, func(t *testing.T) {
@@ -131,15 +136,16 @@ func TestLoadInvalidConfig(t *testing.T) {
 
 func TestValidateBranches(t *testing.T) {
 	base := Config{
-		AppName:         "app",
-		AppHost:         "127.0.0.1",
-		AppPort:         8080,
-		AppReadTimeout:  1,
-		AppWriteTimeout: 1,
-		SQLitePath:      "data/app.db",
-		RedisAddr:       "127.0.0.1:6379",
-		RedisDB:         0,
-		RedisDefaultTTL: 1,
+		AppName:            "app",
+		AppHost:            "127.0.0.1",
+		AppPort:            8080,
+		AppReadTimeout:     1,
+		AppWriteTimeout:    1,
+		SQLitePath:         "data/app.db",
+		RedisAddr:          "127.0.0.1:6379",
+		RedisDB:            0,
+		RedisDefaultTTL:    1,
+		RedisPingTimeoutMs: 5000,
 	}
 	if err := base.Validate(); err != nil {
 		t.Fatalf("expected valid config, got %v", err)
@@ -159,6 +165,7 @@ func TestValidateBranches(t *testing.T) {
 		{"redis addr", func(c *Config) { c.RedisAddr = "" }, "REDIS_ADDR"},
 		{"redis db", func(c *Config) { c.RedisDB = -1 }, "REDIS_DB"},
 		{"redis ttl", func(c *Config) { c.RedisDefaultTTL = 0 }, "REDIS_DEFAULT_TTL_SEC"},
+		{"redis ping timeout", func(c *Config) { c.RedisPingTimeoutMs = 0 }, "REDIS_PING_TIMEOUT_MS"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

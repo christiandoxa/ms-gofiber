@@ -86,6 +86,11 @@ func TestTodoUsecaseCreate(t *testing.T) {
 	assertAppErrorCode(t, err, apperror.ErrDB)
 }
 
+func TestCacheErrorReporterOptions(t *testing.T) {
+	noopCacheErrorReporter(context.Background(), "set", "1", errors.New("cache"))
+	NewTodo(mockRepo{}, nil, time.Second, WithCacheErrorReporter(nil))
+}
+
 func TestTodoUsecaseGet(t *testing.T) {
 	now := time.Now().UTC()
 
@@ -127,6 +132,7 @@ func TestTodoUsecaseGet(t *testing.T) {
 		t.Fatalf("fallback get failed: out=%+v err=%v set=%v", out, err, setCalled)
 	}
 
+	reportedSet := false
 	uSetErr := NewTodo(
 		mockRepo{get: func(context.Context, domain.TodoID) (*domain.Todo, error) {
 			return &domain.Todo{ID: "3", Title: "c", CreatedAt: now, UpdatedAt: now}, nil
@@ -140,10 +146,16 @@ func TestTodoUsecaseGet(t *testing.T) {
 			},
 		},
 		time.Second,
+		WithCacheErrorReporter(func(_ context.Context, operation string, id domain.TodoID, err error) {
+			reportedSet = operation == "set" && id == "3" && err != nil
+		}),
 	)
 	out, err = uSetErr.Get(context.Background(), "3")
 	if err != nil || out.ID != "3" {
 		t.Fatalf("expected cache set error to be ignored, out=%+v err=%v", out, err)
+	}
+	if !reportedSet {
+		t.Fatalf("expected cache set error to be reported")
 	}
 
 	uNotFound := NewTodo(mockRepo{get: func(context.Context, domain.TodoID) (*domain.Todo, error) {
@@ -187,10 +199,18 @@ func TestTodoUsecaseListUpdateDelete(t *testing.T) {
 		t.Fatalf("delete failed: %v", err)
 	}
 
+	reportedDelete := 0
+	reportDelete := func(_ context.Context, operation string, id domain.TodoID, err error) {
+		if operation == "delete" && id == "cache" && err != nil {
+			reportedDelete++
+		}
+	}
+
 	uUpdateCacheErr := NewTodo(
 		mockRepo{update: func(context.Context, *domain.Todo) error { return nil }},
 		mockCache{delete: func(context.Context, domain.TodoID) error { return errors.New("cache delete") }},
 		time.Second,
+		WithCacheErrorReporter(reportDelete),
 	)
 	if _, err := uUpdateCacheErr.Update(context.Background(), &domain.Todo{ID: "cache", Title: "u"}); err != nil {
 		t.Fatalf("expected update cache delete error to be ignored, got %v", err)
@@ -200,9 +220,13 @@ func TestTodoUsecaseListUpdateDelete(t *testing.T) {
 		mockRepo{delete: func(context.Context, domain.TodoID) error { return nil }},
 		mockCache{delete: func(context.Context, domain.TodoID) error { return errors.New("cache delete") }},
 		time.Second,
+		WithCacheErrorReporter(reportDelete),
 	)
 	if err := uDeleteCacheErr.Delete(context.Background(), "cache"); err != nil {
 		t.Fatalf("expected delete cache error to be ignored, got %v", err)
+	}
+	if reportedDelete != 2 {
+		t.Fatalf("expected two cache delete reports, got %d", reportedDelete)
 	}
 
 	uListErr := NewTodo(mockRepo{list: func(context.Context, int, int) ([]*domain.Todo, error) {

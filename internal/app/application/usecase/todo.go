@@ -18,6 +18,18 @@ type TodoCache interface {
 	DeleteTodo(ctx context.Context, id domain.TodoID) error
 }
 
+type CacheErrorReporter func(ctx context.Context, operation string, id domain.TodoID, err error)
+
+type TodoOption func(*todo)
+
+func WithCacheErrorReporter(reporter CacheErrorReporter) TodoOption {
+	return func(u *todo) {
+		if reporter != nil {
+			u.reportCacheError = reporter
+		}
+	}
+}
+
 type TodoUseCase interface {
 	Create(ctx context.Context, in *domain.Todo) (*domain.Todo, error)
 	Get(ctx context.Context, id domain.TodoID) (*domain.Todo, error)
@@ -27,17 +39,26 @@ type TodoUseCase interface {
 }
 
 type todo struct {
-	repo  repository.TodoRepository
-	cache TodoCache
-	ttl   time.Duration
+	repo             repository.TodoRepository
+	cache            TodoCache
+	ttl              time.Duration
+	reportCacheError CacheErrorReporter
 }
 
-func NewTodo(repo repository.TodoRepository, cache TodoCache, defaultTTL time.Duration) TodoUseCase {
-	return &todo{
-		repo:  repo,
-		cache: cache,
-		ttl:   defaultTTL,
+func NewTodo(repo repository.TodoRepository, cache TodoCache, defaultTTL time.Duration, opts ...TodoOption) TodoUseCase {
+	u := &todo{
+		repo:             repo,
+		cache:            cache,
+		ttl:              defaultTTL,
+		reportCacheError: noopCacheErrorReporter,
 	}
+	for _, opt := range opts {
+		opt(u)
+	}
+	return u
+}
+
+func noopCacheErrorReporter(context.Context, string, domain.TodoID, error) {
 }
 
 func (u *todo) Create(ctx context.Context, in *domain.Todo) (*domain.Todo, error) {
@@ -71,6 +92,7 @@ func (u *todo) Get(ctx context.Context, id domain.TodoID) (*domain.Todo, error) 
 
 	if u.cache != nil {
 		if err := u.cache.SetTodo(ctx, t, u.ttl); err != nil {
+			u.reportCacheError(ctx, "set", t.ID, err)
 			return t, nil
 		}
 	}
@@ -96,6 +118,7 @@ func (u *todo) Update(ctx context.Context, in *domain.Todo) (*domain.Todo, error
 
 	if u.cache != nil {
 		if err := u.cache.DeleteTodo(ctx, in.ID); err != nil {
+			u.reportCacheError(ctx, "delete", in.ID, err)
 			return in, nil
 		}
 	}
@@ -112,6 +135,7 @@ func (u *todo) Delete(ctx context.Context, id domain.TodoID) error {
 
 	if u.cache != nil {
 		if err := u.cache.DeleteTodo(ctx, id); err != nil {
+			u.reportCacheError(ctx, "delete", id, err)
 			return nil
 		}
 	}

@@ -56,6 +56,7 @@ Install `golangci-lint` before running `make lint`.
 
 `sonar-project.properties` provides a headless scanner baseline. Run `make sonar` only after `sonar-scanner`,
 `SONAR_HOST_URL`, and `SONAR_TOKEN` are configured for your SonarQube project.
+The scanner is scoped to `cmd`, `internal`, and `pkg` so generated reports, docs, SQL, and workspace files do not pollute source analysis.
 
 ## VSCode
 

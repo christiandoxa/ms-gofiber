@@ -25,10 +25,11 @@ type Config struct {
 
 	SQLitePath string
 
-	RedisAddr       string
-	RedisDB         int
-	RedisPassword   string
-	RedisDefaultTTL int
+	RedisAddr          string
+	RedisDB            int
+	RedisPassword      string
+	RedisDefaultTTL    int
+	RedisPingTimeoutMs int
 }
 
 func Load() (*Config, error) {
@@ -56,6 +57,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	redisPingTimeout, err := getenvInt("REDIS_PING_TIMEOUT_MS", 5000)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		AppName:         getenv("APP_NAME", "ms-gofiber"),
@@ -67,10 +72,11 @@ func Load() (*Config, error) {
 
 		SQLitePath: getenv("SQLITE_PATH", "data/ms-gofiber.db"),
 
-		RedisAddr:       getenv("REDIS_ADDR", "localhost:6379"),
-		RedisDB:         redisDB,
-		RedisPassword:   getenv("REDIS_PASSWORD", ""),
-		RedisDefaultTTL: redisTTL,
+		RedisAddr:          getenv("REDIS_ADDR", "localhost:6379"),
+		RedisDB:            redisDB,
+		RedisPassword:      getenv("REDIS_PASSWORD", ""),
+		RedisDefaultTTL:    redisTTL,
+		RedisPingTimeoutMs: redisPingTimeout,
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -137,6 +143,9 @@ func (c *Config) Validate() error {
 	if c.RedisDefaultTTL <= 0 {
 		return fmt.Errorf("REDIS_DEFAULT_TTL_SEC must be positive")
 	}
+	if c.RedisPingTimeoutMs <= 0 {
+		return fmt.Errorf("REDIS_PING_TIMEOUT_MS must be positive")
+	}
 	return nil
 }
 
@@ -154,4 +163,8 @@ func (c *Config) WriteTimeout() time.Duration {
 
 func (c *Config) RedisDefaultTTLDuration() time.Duration {
 	return time.Duration(c.RedisDefaultTTL) * time.Second
+}
+
+func (c *Config) RedisPingTimeout() time.Duration {
+	return time.Duration(c.RedisPingTimeoutMs) * time.Millisecond
 }

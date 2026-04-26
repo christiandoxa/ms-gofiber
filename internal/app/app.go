@@ -9,6 +9,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/redis/go-redis/v9"
+	"github.com/sirupsen/logrus"
 
 	"github.com/christiandoxa/welog"
 	"go.elastic.co/apm/module/apmfiber/v2"
@@ -18,6 +19,7 @@ import (
 	sqliteadapter "ms-gofiber/internal/app/adapter/repository/sqlite"
 	appvalidation "ms-gofiber/internal/app/adapter/validation"
 	todousecase "ms-gofiber/internal/app/application/usecase"
+	"ms-gofiber/internal/app/domain"
 	"ms-gofiber/internal/config"
 	"ms-gofiber/internal/middleware"
 	"ms-gofiber/internal/validator"
@@ -65,11 +67,15 @@ func buildInfrastructure(ctx context.Context, cfg *config.Config) (*infrastructu
 		return nil, err
 	}
 
-	redisClient := cache.NewRedis(cache.RedisOptions{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
+	redisClient, err := cache.NewRedis(ctx, cache.RedisOptions{
+		Addr:        cfg.RedisAddr,
+		Password:    cfg.RedisPassword,
+		DB:          cfg.RedisDB,
+		PingTimeout: cfg.RedisPingTimeout(),
 	})
+	if err != nil {
+		return nil, errors.Join(err, sqliteDB.Close())
+	}
 
 	return &infrastructure{
 		sqliteDB:    sqliteDB,
@@ -114,11 +120,23 @@ func registerRoutes(
 ) {
 	todoRepo := sqliteadapter.NewTodo(infra.sqliteDB)
 	todoCache := redisadapter.NewTodo(infra.redisClient)
-	todoUC := todousecase.NewTodo(todoRepo, todoCache, cacheTTL)
+	todoUC := todousecase.NewTodo(
+		todoRepo,
+		todoCache,
+		cacheTTL,
+		todousecase.WithCacheErrorReporter(reportTodoCacheError),
+	)
 	todoController := controller.NewTodo(todoUC, validate)
 	internalController := controller.NewInternal()
 	validationController := controller.NewValidation(validate)
 
 	router := controller.NewRouter(app, todoController, internalController, validationController)
 	router.RegisterRoutes()
+}
+
+func reportTodoCacheError(ctx context.Context, operation string, id domain.TodoID, err error) {
+	logrus.WithContext(ctx).WithError(err).WithFields(logrus.Fields{
+		"operation": operation,
+		"todo_id":   id,
+	}).Warn("todo cache operation failed")
 }

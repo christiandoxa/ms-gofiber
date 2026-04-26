@@ -18,7 +18,7 @@ It also includes a **mandatory self-hit** outbound client example that logs with
     * **welog**: request/response logging middleware + per-request logger in `c.Locals("logger")`, and **client logs**
       via `welog.LogFiberClient(...)`.
 * **SQLite** database (`modernc.org/sqlite`) with auto schema bootstrap.
-* **Redis (go-redis/v9)** client with APM hook (`ProcessHook`, `ProcessPipelineHook`, `DialHook`).
+* **Redis (go-redis/v9)** client with startup ping validation and APM hook (`ProcessHook`, `ProcessPipelineHook`, `DialHook`).
 * **Validation** with go-playground/validator:
 
     * **Plain-base** rules (field validations),
@@ -96,7 +96,7 @@ Important keys (see `.env.example`):
 
 * **Server**: `APP_HOST`, `APP_PORT`, `APP_READ_TIMEOUT_SEC`, `APP_WRITE_TIMEOUT_SEC`
 * **SQLite**: `SQLITE_PATH`
-* **Redis**: `REDIS_ADDR`, `REDIS_DB`, `REDIS_PASSWORD`, `REDIS_DEFAULT_TTL_SEC`
+* **Redis**: `REDIS_ADDR`, `REDIS_DB`, `REDIS_PASSWORD`, `REDIS_DEFAULT_TTL_SEC`, `REDIS_PING_TIMEOUT_MS`
 * **Elastic APM**: `ELASTIC_APM_SERVER_URL`, `ELASTIC_APM_SERVICE_NAME`, `ELASTIC_APM_ENVIRONMENT`, etc.
 
 > Note: `godotenv` loads `.env` automatically if present.
@@ -320,7 +320,9 @@ type structRule struct {
 * **Outbound HTTP**: `apmhttp.WrapClient(...)` automatically creates spans for downstream calls (context propagated from
   `c.UserContext()`).
 * **SQLite**: repository operations are wrapped in APM spans (`TodoRepo.*`) using the request context.
-* **Redis**: Custom **hook** creates spans for `ProcessHook`, `ProcessPipelineHook`, and `DialHook`.
+* **Redis**: the client is pinged during application build so invalid Redis configuration fails fast.
+* **Redis tracing**: Custom **hook** creates spans for `ProcessHook`, `ProcessPipelineHook`, and `DialHook`.
+* **Best-effort todo cache**: cache write/delete failures are reported by the usecase and do not fail the primary database operation.
 
 > Ensure your APM environment variables are set (see `.env.example`).
 > By design, **every operation that carries `context.Context`** in handlers/services/repos/cache/client is either traced
@@ -358,6 +360,7 @@ REDIS_ADDR=localhost:6379
 REDIS_DB=0
 REDIS_PASSWORD=
 REDIS_DEFAULT_TTL_SEC=60
+REDIS_PING_TIMEOUT_MS=5000
 
 # Elastic APM (optional but recommended)
 ELASTIC_APM_SERVER_URL=http://localhost:8200
@@ -388,7 +391,7 @@ ELASTIC_APM_RECORDING=true
 * **No welog client logs**: confirm `welog.NewFiber(...)` is mounted and your outbound path calls
   `welog.LogFiberClient(...)` (already wired in `pkg/httpx` and self-hit).
 * **DB errors**: ensure `SQLITE_PATH` is valid and the process can write to the target directory.
-* **Redis errors**: verify `REDIS_ADDR` and permissions.
+* **Redis errors**: startup fails when Redis cannot be pinged. Verify `REDIS_ADDR`, network access, and permissions.
 * **Validation errors**: see `fields` object in the error envelope for tag names.
 
 ---

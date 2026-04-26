@@ -32,6 +32,7 @@ Keep business decisions close to the domain or usecase that owns them:
 * Storage details belong in repository implementations.
 * Response status and envelope mapping belong in presenter/respond layers.
 * Observability, logging, and transport concerns must not leak into domain entities.
+* Best-effort infrastructure failures must be explicit and observable, even when they do not fail the primary usecase flow.
 
 ## Design Pattern Usage Policy
 

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+
 	"ms-gofiber/internal/config"
 )
 
@@ -99,14 +101,21 @@ func TestRunBranches(t *testing.T) {
 }
 
 func TestDefaultBuildApp(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer mr.Close()
+
 	cfg := &config.Config{
-		AppHost:         "127.0.0.1",
-		AppPort:         18080,
-		AppReadTimeout:  1,
-		AppWriteTimeout: 1,
-		SQLitePath:      filepath.Join(t.TempDir(), "db", "app.db"),
-		RedisAddr:       "127.0.0.1:1",
-		RedisDefaultTTL: 1,
+		AppHost:            "127.0.0.1",
+		AppPort:            18080,
+		AppReadTimeout:     1,
+		AppWriteTimeout:    1,
+		SQLitePath:         filepath.Join(t.TempDir(), "db", "app.db"),
+		RedisAddr:          mr.Addr(),
+		RedisDefaultTTL:    1,
+		RedisPingTimeoutMs: 10,
 	}
 
 	server, closer, err := buildApp(context.Background(), cfg)
