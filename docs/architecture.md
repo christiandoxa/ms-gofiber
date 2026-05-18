@@ -6,6 +6,7 @@
 * `pkg/server`: dependency wiring, Fiber config, middleware order, and route registration.
 * `router`: route group construction.
 * `handler`: HTTP input/output translation.
+* `external/domain/<feature>`: outbound adapter repositories and services.
 * `internal/domain/<feature>/model`: feature entities and DTOs.
 * `internal/domain/<feature>/repository`: repository ports and persistence implementation.
 * `internal/domain/<feature>/service`: usecase orchestration.
@@ -24,9 +25,13 @@
 
 The current service uses:
 
-* In-memory todo persistence under `pkg/infrastructure/database`.
+* SQLite-backed todo persistence under `pkg/infrastructure/database`.
+* Generic in-memory TTL cache under `pkg/infrastructure/cache`.
+* Generic outbound HTTP client under `pkg/client`.
+* External echo adapter under `external/domain/echo`.
 * Todo repository and service/usecase under `internal/domain/todo`.
 * Generic request validation through `internal/domain/reqvalidator/service`.
+* Plain-base and struct-base validator rules under `pkg/rule`.
 * Generic response envelope through `pkg/response`.
 
 ## Pattern Policy

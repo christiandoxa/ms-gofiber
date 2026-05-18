@@ -23,21 +23,30 @@ func New(db *database.DB) ITodoRepository {
 	return &TodoRepository{db: db}
 }
 
-func (r *TodoRepository) Create(_ context.Context, todo *todomodel.Todo) (*todomodel.Todo, error) {
-	record := r.db.CreateTodo(toRecord(todo))
+func (r *TodoRepository) Create(ctx context.Context, todo *todomodel.Todo) (*todomodel.Todo, error) {
+	record, err := r.db.CreateTodo(ctx, toRecord(todo))
+	if err != nil {
+		return nil, err
+	}
 	return toModel(record), nil
 }
 
-func (r *TodoRepository) Get(_ context.Context, id string) (*todomodel.Todo, error) {
-	record, ok := r.db.GetTodo(id)
+func (r *TodoRepository) Get(ctx context.Context, id string) (*todomodel.Todo, error) {
+	record, ok, err := r.db.GetTodo(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, todomodel.ErrTodoNotFound
 	}
 	return toModel(record), nil
 }
 
-func (r *TodoRepository) List(_ context.Context) ([]*todomodel.Todo, error) {
-	records := r.db.ListTodos()
+func (r *TodoRepository) List(ctx context.Context) ([]*todomodel.Todo, error) {
+	records, err := r.db.ListTodos(ctx)
+	if err != nil {
+		return nil, err
+	}
 	todos := make([]*todomodel.Todo, 0, len(records))
 	for _, record := range records {
 		todos = append(todos, toModel(record))
@@ -45,16 +54,23 @@ func (r *TodoRepository) List(_ context.Context) ([]*todomodel.Todo, error) {
 	return todos, nil
 }
 
-func (r *TodoRepository) Update(_ context.Context, todo *todomodel.Todo) (*todomodel.Todo, error) {
-	record, ok := r.db.UpdateTodo(toRecord(todo))
+func (r *TodoRepository) Update(ctx context.Context, todo *todomodel.Todo) (*todomodel.Todo, error) {
+	record, ok, err := r.db.UpdateTodo(ctx, toRecord(todo))
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, todomodel.ErrTodoNotFound
 	}
 	return toModel(record), nil
 }
 
-func (r *TodoRepository) Delete(_ context.Context, id string) error {
-	if !r.db.DeleteTodo(id) {
+func (r *TodoRepository) Delete(ctx context.Context, id string) error {
+	ok, err := r.db.DeleteTodo(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !ok {
 		return todomodel.ErrTodoNotFound
 	}
 	return nil

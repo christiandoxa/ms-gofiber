@@ -12,7 +12,13 @@ import (
 
 func TestTodoRepository(t *testing.T) {
 	ctx := context.Background()
-	repo := New(database.Connect())
+	db := database.Connect(":memory:")
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("close db: %v", err)
+		}
+	}()
+	repo := New(db)
 	now := time.Now().UTC()
 
 	todo, err := repo.Create(ctx, &todomodel.Todo{ID: "1", Title: "one", CreatedAt: now, UpdatedAt: now})
@@ -49,5 +55,31 @@ func TestTodoRepository(t *testing.T) {
 	}
 	if err := repo.Delete(ctx, "missing"); !errors.Is(err, todomodel.ErrTodoNotFound) {
 		t.Fatalf("expected missing delete error, got %v", err)
+	}
+}
+
+func TestTodoRepositoryDatabaseErrors(t *testing.T) {
+	ctx := context.Background()
+	db := database.Connect(":memory:")
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+	repo := New(db)
+	todo := &todomodel.Todo{ID: "1", Title: "one", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+
+	if _, err := repo.Create(ctx, todo); err == nil {
+		t.Fatalf("expected create error")
+	}
+	if _, err := repo.Get(ctx, "1"); err == nil {
+		t.Fatalf("expected get error")
+	}
+	if _, err := repo.List(ctx); err == nil {
+		t.Fatalf("expected list error")
+	}
+	if _, err := repo.Update(ctx, todo); err == nil {
+		t.Fatalf("expected update error")
+	}
+	if err := repo.Delete(ctx, "1"); err == nil {
+		t.Fatalf("expected delete error")
 	}
 }

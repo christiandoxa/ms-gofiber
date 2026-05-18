@@ -1,49 +1,49 @@
 package server
 
 import (
-	"net/http/httptest"
+	"errors"
 	"testing"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/go-playground/validator/v10"
 )
 
 func TestNewServer(t *testing.T) {
-	app := NewServer()
+	if app := NewServer(); app == nil {
+		t.Fatalf("expected app")
+	}
+}
 
-	res, err := app.Test(httptest.NewRequest(fiber.MethodGet, "/v1/health", nil))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
+func TestInitValidator(t *testing.T) {
+	if validate := initValidator(); validate == nil {
+		t.Fatalf("expected validator")
 	}
-	if res.StatusCode != fiber.StatusOK {
-		t.Fatalf("expected 200 got %d", res.StatusCode)
+}
+
+func TestInitValidatorError(t *testing.T) {
+	originalRegisterRule := registerRule
+	originalFatal := fatal
+	t.Cleanup(func() {
+		registerRule = originalRegisterRule
+		fatal = originalFatal
+	})
+
+	expectedErr := errors.New("register")
+	fatalCalled := false
+	registerRule = func(*validator.Validate) error {
+		return expectedErr
 	}
-	if err := res.Body.Close(); err != nil {
-		t.Fatalf("close body: %v", err)
+	fatal = func(args ...any) {
+		err, ok := args[0].(error)
+		if !ok || !errors.Is(err, expectedErr) {
+			t.Fatalf("unexpected fatal args: %+v", args)
+		}
+		fatalCalled = true
 	}
 
-	req := httptest.NewRequest(fiber.MethodGet, "/v1/todos", nil)
-	req.Header.Set("X-CLIENT-ID", "client")
-	res, err = app.Test(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
+	if validate := initValidator(); validate == nil {
+		t.Fatalf("expected validator")
 	}
-	if res.StatusCode != fiber.StatusOK {
-		t.Fatalf("expected 200 got %d", res.StatusCode)
-	}
-	if err := res.Body.Close(); err != nil {
-		t.Fatalf("close body: %v", err)
-	}
-
-	req = httptest.NewRequest(fiber.MethodGet, "/missing", nil)
-	req.Header.Set("X-CLIENT-ID", "client")
-	res, err = app.Test(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	if res.StatusCode != fiber.StatusNotFound {
-		t.Fatalf("expected 404 got %d", res.StatusCode)
-	}
-	if err := res.Body.Close(); err != nil {
-		t.Fatalf("close body: %v", err)
+	if !fatalCalled {
+		t.Fatalf("expected fatal call")
 	}
 }

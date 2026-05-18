@@ -12,12 +12,14 @@ func Register(app *fiber.App, service *model.Service) {
 	apiVersion := app.Group("v1")
 
 	router := &model.Router{
-		TodoRouter: apiVersion.Group(pathkey.TodoBasePath),
+		ExternalRouter: apiVersion.Group(pathkey.ExternalBasePath),
+		TodoRouter:     apiVersion.Group(pathkey.TodoBasePath),
 	}
 
 	apiVersion.Get(pathkey.HealthPath, func(c *fiber.Ctx) error {
 		return c.JSON(response.Success(fiber.Map{"status": "ok"}))
 	})
 
+	externalRouter(router, service)
 	todoRouter(router, service)
 }
