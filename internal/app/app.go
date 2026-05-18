@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -27,10 +28,34 @@ import (
 	"ms-gofiber/pkg/logging"
 )
 
-func Build(ctx context.Context, cfg *config.Config) (*fiber.App, func() error, error) {
+type Runtime struct {
+	*fiber.App
+	resources []io.Closer
+}
+
+func NewRuntime(fiberApp *fiber.App, resources ...io.Closer) *Runtime {
+	return &Runtime{
+		App:       fiberApp,
+		resources: resources,
+	}
+}
+
+func (r *Runtime) Close() error {
+	return closeAll(r.resources...)
+}
+
+func closeAll(resources ...io.Closer) error {
+	var err error
+	for _, resource := range resources {
+		err = errors.Join(err, resource.Close())
+	}
+	return err
+}
+
+func Build(ctx context.Context, cfg *config.Config) (*Runtime, error) {
 	sqliteDB, err := db.NewSQLiteDB(ctx, cfg.SQLitePath)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	redisClient, err := cache.NewRedis(ctx, cache.RedisOptions{
@@ -40,24 +65,19 @@ func Build(ctx context.Context, cfg *config.Config) (*fiber.App, func() error, e
 		PingTimeout: cfg.RedisPingTimeout(),
 	})
 	if err != nil {
-		return nil, nil, errors.Join(err, sqliteDB.Close())
-	}
-
-	closeApp := func() error {
-		return errors.Join(sqliteDB.Close(), redisClient.Close())
+		return nil, errors.Join(err, sqliteDB.Close())
 	}
 
 	validate, err := apivalidation.NewStructValidator()
 	if err != nil {
-		closeErr := closeApp()
-		return nil, nil, errors.Join(err, closeErr)
+		return nil, errors.Join(err, closeAll(sqliteDB, redisClient))
 	}
 
 	fiberApp := newFiberApp(cfg)
 	registerMiddleware(fiberApp, validate, redisClient, cfg.RedisDefaultTTLDuration())
 	registerRoutes(fiberApp, validate, sqliteDB, redisClient, cfg.RedisDefaultTTLDuration())
 
-	return fiberApp, closeApp, nil
+	return NewRuntime(fiberApp, sqliteDB, redisClient), nil
 }
 
 func newFiberApp(cfg *config.Config) *fiber.App {

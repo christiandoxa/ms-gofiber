@@ -19,30 +19,24 @@ func main() {
 	}
 }
 
-func run(ctx context.Context) error {
+func run(ctx context.Context) (err error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return startuperror.Wrap(startuperror.ConfigLoad, err)
 	}
 
-	fbApp, closeApp, err := app.Build(ctx, cfg)
+	runtime, err := app.Build(ctx, cfg)
 	if err != nil {
 		return startuperror.Wrap(startuperror.AppBuild, err)
 	}
-	appClosed := false
 	defer func() {
-		if appClosed {
-			return
-		}
-		if closeErr := closeApp(); closeErr != nil {
-			logging.Error(ctx, startuperror.Wrap(startuperror.AppClose, closeErr), "app close failed", nil)
-		}
+		err = closeRuntime(ctx, runtime, err)
 	}()
 
 	listenErr := make(chan error, 1)
 	go func() {
 		logging.Info(ctx, "server starting", map[string]any{"addr": cfg.ListenAddr()})
-		listenErr <- fbApp.Listen(cfg.ListenAddr())
+		listenErr <- runtime.Listen(cfg.ListenAddr())
 	}()
 
 	// graceful shutdown
@@ -62,16 +56,24 @@ func run(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := fbApp.ShutdownWithContext(shutdownCtx); err != nil {
+	if err := runtime.ShutdownWithContext(shutdownCtx); err != nil {
 		return startuperror.Wrap(startuperror.FiberShutdown, err)
-	}
-
-	closeErr := closeApp()
-	appClosed = true
-	if closeErr != nil {
-		return startuperror.Wrap(startuperror.AppClose, closeErr)
 	}
 
 	logging.Info(ctx, "server gracefully stopped", nil)
 	return nil
+}
+
+func closeRuntime(ctx context.Context, runtime *app.Runtime, result error) error {
+	err := runtime.Close()
+	if err == nil {
+		return result
+	}
+
+	wrapped := startuperror.Wrap(startuperror.AppClose, err)
+	if result != nil {
+		logging.Error(ctx, wrapped, "app close failed", nil)
+		return result
+	}
+	return wrapped
 }

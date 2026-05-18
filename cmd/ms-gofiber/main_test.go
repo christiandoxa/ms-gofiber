@@ -101,17 +101,26 @@ func assertStartupCode(t *testing.T, err error, want startuperror.Code) {
 func patchRunDependencies(
 	cfg *config.Config,
 	fiberApp *fiber.App,
-	closer func() error,
+	closeResource func() error,
 	err error,
 ) *gomonkey.Patches {
 	patches := gomonkey.NewPatches()
 	patches.ApplyFunc(config.Load, func() (*config.Config, error) {
 		return cfg, nil
 	})
-	patches.ApplyFunc(app.Build, func(context.Context, *config.Config) (*fiber.App, func() error, error) {
-		return fiberApp, closer, err
+	patches.ApplyFunc(app.Build, func(context.Context, *config.Config) (*app.Runtime, error) {
+		if err != nil {
+			return nil, err
+		}
+		return app.NewRuntime(fiberApp, closeFunc(closeResource)), nil
 	})
 	return patches
+}
+
+type closeFunc func() error
+
+func (fn closeFunc) Close() error {
+	return fn()
 }
 
 func patchFiberLifecycle(patches *gomonkey.Patches, listenErr, shutdownErr error) {
@@ -145,14 +154,14 @@ func TestDefaultBuildApp(t *testing.T) {
 		RedisPingTimeoutMs: 10,
 	}
 
-	fiberApp, closer, err := app.Build(context.Background(), cfg)
+	runtime, err := app.Build(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("build app: %v", err)
 	}
-	if fiberApp == nil || closer == nil {
-		t.Fatalf("expected app and closer")
+	if runtime == nil {
+		t.Fatalf("expected app runtime")
 	}
-	if err := closer(); err != nil {
+	if err := runtime.Close(); err != nil {
 		t.Fatalf("close app: %v", err)
 	}
 }

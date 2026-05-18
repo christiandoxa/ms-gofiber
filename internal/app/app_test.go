@@ -41,20 +41,20 @@ func baseConfig(t *testing.T) *config.Config {
 
 func TestBuildSuccess(t *testing.T) {
 	cfg := baseConfig(t)
-	fiberApp, closer, err := Build(context.Background(), cfg)
+	runtime, err := Build(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Build success expected, got err: %v", err)
 	}
-	if closer == nil {
-		t.Fatalf("expected closer not nil")
+	if runtime == nil {
+		t.Fatalf("expected runtime not nil")
 	}
 	defer func() {
-		if err := closer(); err != nil {
+		if err := runtime.Close(); err != nil {
 			t.Fatalf("close app: %v", err)
 		}
 	}()
 
-	res, err := fiberApp.Test(httptest.NewRequest("GET", "/v1/health", nil))
+	res, err := runtime.Test(httptest.NewRequest("GET", "/v1/health", nil))
 	if err != nil {
 		t.Fatalf("health request failed: %v", err)
 	}
@@ -66,28 +66,18 @@ func TestBuildSuccess(t *testing.T) {
 func TestBuildInvalidSQLitePath(t *testing.T) {
 	bad := baseConfig(t)
 	bad.SQLitePath = "/proc/1/forbidden/db.sqlite"
-	app2, closer2, err := Build(context.Background(), bad)
+	runtime, err := Build(context.Background(), bad)
 	if err == nil {
-		if closer2 != nil {
-			if closeErr := closer2(); closeErr != nil {
-				t.Fatalf("close unexpected bad app: %v", closeErr)
-			}
-		}
-		t.Fatalf("expected Build error for invalid sqlite path, got app=%v", app2)
+		t.Fatalf("expected Build error for invalid sqlite path, got runtime=%v", runtime)
 	}
 }
 
 func TestBuildInvalidRedisAddr(t *testing.T) {
 	badRedis := baseConfig(t)
 	badRedis.RedisAddr = "127.0.0.1:1"
-	app3, closer3, err := Build(context.Background(), badRedis)
+	runtime, err := Build(context.Background(), badRedis)
 	if err == nil {
-		if closer3 != nil {
-			if closeErr := closer3(); closeErr != nil {
-				t.Fatalf("close unexpected bad redis app: %v", closeErr)
-			}
-		}
-		t.Fatalf("expected Build error for invalid redis addr, got app=%v", app3)
+		t.Fatalf("expected Build error for invalid redis addr, got runtime=%v", runtime)
 	}
 }
 
@@ -97,12 +87,12 @@ func TestBuildValidatorError(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	_, closer, err := Build(context.Background(), baseConfig(t))
+	runtime, err := Build(context.Background(), baseConfig(t))
 	if err == nil || !strings.Contains(err.Error(), "validator") {
 		t.Fatalf("expected validator error, got %v", err)
 	}
-	if closer != nil {
-		t.Fatalf("expected nil closer on validator error")
+	if runtime != nil {
+		t.Fatalf("expected nil runtime on validator error")
 	}
 }
 
