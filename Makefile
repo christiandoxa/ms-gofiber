@@ -1,6 +1,6 @@
 GO ?= go
 GOLANGCI_LINT ?= $(shell command -v golangci-lint 2>/dev/null || printf '%s/bin/golangci-lint' "$$($(GO) env GOPATH)")
-APP_PKG ?= ./cmd/ms-gofiber
+APP_PKG ?= ./cmd/app
 SONAR_SCANNER ?= sonar-scanner
 GO_TEST_FLAGS ?= -gcflags=all=-l
 COVERAGE_PROFILE ?= coverage.out

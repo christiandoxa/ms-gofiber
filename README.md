@@ -1,439 +1,83 @@
-# ms-gofiber — Go Fiber Boilerplate
+# ms-gofiber
 
-A production-ready **Go Fiber** baseline focused on **clean architecture**, **first-class observability**
-(Elastic **APM** end-to-end), structured **logging** with **welog**, **SQLite**, **Redis (go-redis/v9)**, and a
-validator layer with both field-level and struct-level custom rules.
-It also includes a **mandatory self-hit** outbound client example that logs with welog and traces with APM.
+Clean Go Fiber service using the preferred app composition pattern:
 
----
+* `cmd/app`: process entrypoint and app-level models.
+* `pkg/server`: dependency wiring and Fiber middleware order.
+* `router`: route group registration.
+* `handler`: Fiber handlers and middleware.
+* `internal/domain/todo`: entity, repository port, repository implementation, and service/usecase.
+* `pkg/response`: generic response envelope without business-specific codes.
 
-## Key Features
-
-* **Fiber v2** web server with sane defaults.
-* **Observability by default**
-
-  * **Elastic APM**: inbound (Fiber), outbound HTTP, SQLite repository spans, and Redis (via custom hook) —
-    everything
-      carrying a `context.Context` is traced.
-    * **welog**: request/response logging middleware + per-request logger in `c.Locals("logger")`, and **client logs**
-      via `welog.LogFiberClient(...)`.
-* **SQLite** database (`modernc.org/sqlite`) with auto schema bootstrap.
-* **Redis (go-redis/v9)** client with startup ping validation and APM hook (`ProcessHook`, `ProcessPipelineHook`, `DialHook`).
-* **Validation** with go-playground/validator:
-
-    * **Plain-base** rules (field validations),
-    * **Struct-base** rules (cross-field/semantic),
-    * **Typed rule registration** for field-level and struct-level validators.
-* **Response remapping via map** (no `switch`) for consistent API envelopes.
-* **Self-hit endpoint** demonstrating outbound HTTP with APM + welog client logging.
-* **Clean architecture** layering: `internal/app/domain` → `internal/app/application/usecase` →
-  `internal/app/adapter`.
-
----
-
-## Tech Stack
-
-* Go `1.26`
-* Fiber `v2`
-* Elastic APM modules (`apmfiber`, `apmhttp`)
-* SQLite (`modernc.org/sqlite`)
-* go-redis/v9
-* welog
-* validator/v10
-* logrus
-* `github.com/joho/godotenv` for `.env` loading
-
----
-
-## Folder Structure
-
-```
-ms-gofiber/
-├─ go.mod
-├─ go.sum
-├─ .env.example
-├─ sql/
-│  └─ schema.sql
-├─ cmd/
-│  └─ ms-gofiber/
-│     └─ main.go
-├─ internal/
-│  ├─ app/
-│  │  ├─ adapter/          # controller, request DTOs, presenter, validation, repository impl
-│  │  ├─ application/      # usecase layer
-│  │  └─ domain/           # entities + repository interfaces
-│  ├─ config/              # config loader (.env via godotenv)
-│  ├─ middleware/          # global middlewares (error, headers, request id)
-│  └─ validator/           # reusable field-level validation rules
-├─ pkg/
-│  ├─ apmredis/            # Redis APM hook (trace all commands)
-│  ├─ apperror/            # typed app errors
-│  ├─ cache/               # Redis client construction
-│  ├─ db/                  # SQLite connection + schema bootstrap
-│  ├─ httpx/               # context-first APM-wrapped HTTP client
-│  └─ respond/             # response envelope + code→HTTP map
-```
-
----
-
-## Getting Started
-
-### Prerequisites
-
-* Go `1.26`
-* SQLite & Redis
-* (Optional) Elastic APM Server if you want tracing visualized
-
-### 1) Configure environment
-
-Copy the sample and edit to your needs:
+## Run
 
 ```bash
-cp .env.example .env
-```
-
-Important keys (see `.env.example`):
-
-* **Server**: `APP_HOST`, `APP_PORT`, `APP_READ_TIMEOUT_SEC`, `APP_WRITE_TIMEOUT_SEC`
-* **SQLite**: `SQLITE_PATH`
-* **Redis**: `REDIS_ADDR`, `REDIS_DB`, `REDIS_PASSWORD`, `REDIS_DEFAULT_TTL_SEC`, `REDIS_PING_TIMEOUT_MS`
-* **Elastic APM**: `ELASTIC_APM_SERVER_URL`, `ELASTIC_APM_SERVICE_NAME`, `ELASTIC_APM_ENVIRONMENT`, etc.
-
-> Note: `godotenv` loads `.env` automatically if present.
-
-### 2) Install deps
-
-```bash
-go mod tidy
-```
-
-### 3) Prepare database
-
-The schema is created automatically when the application starts.
-
-Optional manual initialization:
-
-```bash
-sqlite3 data/ms-gofiber.db < sql/schema.sql
-```
-
-### 4) Run the service
-
-```bash
-go run ./cmd/ms-gofiber
-```
-
-Server listens on `APP_HOST:APP_PORT` (default `0.0.0.0:8080`).
-
----
-
-## API Reference (Quick)
-
-### Required Headers (for protected endpoints)
-
-Middleware `HeaderGuard` + `ExternalIDGuard` require these headers on non-skipped endpoints:
-
-```
-X-PARTNER-ID: <alphanumeric, max 36>
-CHANNEL-ID: <alphanumeric, max 5>
-X-EXTERNAL-ID: <numeric, max 36, unique within TTL>
-```
-
-Skip path default:
-
-```
-/v1/health
-/v1/internal/echo
-/v1/client/self-call
-```
-
-### Health
-
-```
-GET /v1/health
-```
-
-→ `{"status":"ok"}`
-
-### Todos
-
-```
-POST   /v1/todos           # create
-GET    /v1/todos           # list (limit, offset)
-GET    /v1/todos/:id       # get by id
-PUT    /v1/todos/:id       # update
-DELETE /v1/todos/:id       # delete
-```
-
-**Sample: Create**
-
-```bash
-curl -X POST http://localhost:8080/v1/todos \
-  -H "Content-Type: application/json" \
-  -H "X-PARTNER-ID: PARTNER123" \
-  -H "CHANNEL-ID: CHN01" \
-  -H "X-EXTERNAL-ID: 10000000000001" \
-  -d '{"title":"My Task","completed":false}'
-```
-
-**Response (success envelope)**
-
-```json
-{
-  "code": "OK",
-  "message": "success",
-  "data": {
-    "id": "d2c8...uuid...",
-    "title": "My Task",
-    "completed": false,
-    "created_at": "2025-11-03T02:15:00Z",
-    "updated_at": "2025-11-03T02:15:00Z"
-  }
-}
-```
-
-### Internal echo (service local probe)
-
-```
-GET /v1/internal/echo?msg=hello
-```
-
-### Self-Hit (mandatory outbound example)
-
-```
-GET /v1/client/self-call
-```
-
-* Calls `GET /v1/internal/echo` via the APM-wrapped HTTP client.
-* Logs client request/response from the Fiber adapter using `welog.LogFiberClient(...)`.
-* Returns upstream status and body in the standard success envelope.
-
-### Validator Demo (plain + struct base)
-
-```
-POST /v1/internal/validator/prepare-example
-```
-
-Body example:
-
-```json
-{
-  "terminalType": "APP",
-  "osType": "ANDROID",
-  "osVersion": "14",
-  "grantType": "AUTHORIZATION_CODE",
-  "paymentMethodType": "DANA",
-  "scope": ["SEND_OTP"],
-  "transactionTime": "2026-02-23T10:30:00Z",
-  "merchantName": "Demo Merchant"
-}
-```
-
----
-
-## Response & Error Model
-
-All responses use a consistent envelope (see `api/respond/respond.go`):
-
-```json
-{
-  "code": "OK | BAD_REQUEST | VALIDATION | NOT_FOUND | DB_ERROR | INTERNAL | ...",
-  "message": "human friendly message",
-  "data": {
-    ...
-  },
-  // optional
-  "meta": {
-    ...
-  },
-  // optional
-  "fields": {
-    "Field": "Tag"
-  }
-  // on validation errors
-}
-```
-
-**HTTP status mapping** is driven by a **map** (no switch) to keep concerns separated and predictable.
-
----
-
-## Validation
-
-* **Field-level** rules in `internal/validator/rule/plainbase` (e.g. `alphanum_with_space`, `authorization_scope`, etc).
-* **App-specific struct-level** rules in `api/validation`.
-
-Example DTO (validated in handlers):
-
-```go
-type TodoUpsertRequest struct {
-	Title     string `json:"title" validate:"required,min=3,max=100,alphanum_with_space"`
-	Completed bool   `json:"completed"`
-}
-```
-
-Struct-level rule examples:
-
-* `todoUpsertStructRule`: enforce trim + non-blank title.
-* `prepareExampleStructRule`: validates the `terminalType` versus `osType`/`osVersion` combination.
-
-**Rule registration** uses typed entries:
-
-```go
-var customRules = map[string]validator.Func{
-	// field rules...
-}
-
-type structRule struct {
-	fn     validator.StructLevelFunc
-	target any
-}
-```
-
----
-
-## Logging
-
-* **welog** middleware is mounted globally:
-
-  ```go
-  app.Use(welog.NewFiber(fiber.Config{}))
-  ```
-* Per-request logger is available on the context:
-
-  ```go
-  logger, ok := c.Locals("logger").(*logrus.Entry)
-  ```
-* **Client logs** for outbound calls use:
-
-  ```go
-  welog.LogFiberClient(c, reqModel, resModel)
-  ```
-
-  (used inside `pkg/httpx/client.go` and self-hit handler)
-
----
-
-## Observability & APM
-
-* **Inbound**: `apmfiber.Middleware()` creates a transaction for each HTTP request (and recovers panics).
-* **Outbound HTTP**: `apmhttp.WrapClient(...)` automatically creates spans for downstream calls (context propagated from
-  `c.UserContext()`).
-* **SQLite**: repository operations are wrapped in APM spans (`TodoRepo.*`) using the request context.
-* **Redis**: the client is pinged during application build so invalid Redis configuration fails fast.
-* **Redis tracing**: Custom **hook** creates spans for `ProcessHook`, `ProcessPipelineHook`, and `DialHook`.
-* **Best-effort todo cache**: cache write/delete failures are reported by the usecase and do not fail the primary database operation.
-
-> Ensure your APM environment variables are set (see `.env.example`).
-> By design, **every operation that carries `context.Context`** in handlers/services/repos/cache/client is either traced
-> automatically or wrapped in a custom APM span.
-
----
-
-## Clean Architecture / DDD
-
-* **Domain** (`internal/app/domain`): entities, repository ports, and domain-level errors with no framework dependency.
-* **Application** (`internal/app/application/usecase`): application business flow and repository/cache orchestration via
-  interfaces.
-* **Adapter** (`internal/app/adapter`): Fiber controllers, presenters, and repository implementations (SQLite/Redis).
-* **Cross-cutting** (`pkg/...`): DB/Redis constructors, APM hooks, HTTP client, response mapping, app errors.
-
-See [docs/architecture.md](docs/architecture.md) for the full clean architecture rules and design pattern policy.
-
----
-
-## Configuration
-
-Loaded via **godotenv** (falls back to OS env if `.env` is missing).
-Key values (see `.env.example`):
-
-```env
-APP_NAME=ms-gofiber
-APP_HOST=0.0.0.0
-APP_PORT=8080
-APP_READ_TIMEOUT_SEC=10
-APP_WRITE_TIMEOUT_SEC=10
-
-SQLITE_PATH=data/ms-gofiber.db
-
-REDIS_ADDR=localhost:6379
-REDIS_DB=0
-REDIS_PASSWORD=
-REDIS_DEFAULT_TTL_SEC=60
-REDIS_PING_TIMEOUT_MS=5000
-
-# Elastic APM (optional but recommended)
-ELASTIC_APM_SERVER_URL=http://localhost:8200
-ELASTIC_APM_SERVICE_NAME=ms-gofiber
-ELASTIC_APM_ENVIRONMENT=local
-ELASTIC_APM_RECORDING=true
-```
-
----
-
-## Extending
-
-* **New domain**: create the entity and repository interface in `internal/app/domain`, add the usecase in
-  `internal/app/application/usecase`, then implement adapters in `internal/app/adapter`.
-* **New reusable field validators**: implement in `internal/validator/rule/plainbase` and register in
-  `internal/validator/rule/register.go`.
-* **New request-specific struct validators**: implement in `api/validation` so DTO rules stay in the API boundary.
-* **New outbound client**: add helper in `pkg/httpx` or a domain-specific gateway; always pass `c.UserContext()` and log
-  with `welog.LogFiberClient(...)`.
-
----
-
-## Troubleshooting
-
-* **APM shows no traces**: verify APM env vars, server URL, and that requests hit the service. Ensure outbound calls use
-  `c.UserContext()`.
-* **No welog client logs**: confirm `welog.NewFiber(...)` is mounted and your outbound path calls
-  `welog.LogFiberClient(...)` (already wired in `pkg/httpx` and self-hit).
-* **DB errors**: ensure `SQLITE_PATH` is valid and the process can write to the target directory.
-* **Redis errors**: startup fails when Redis cannot be pinged. Verify `REDIS_ADDR`, network access, and permissions.
-* **Validation errors**: see `fields` object in the error envelope for tag names.
-
----
-
-## License
-
-MIT License — see [LICENSE](LICENSE) for details.
-
----
-
-## Developer Tooling
-
-Baseline commands are documented in [docs/tooling.md](docs/tooling.md) and exposed through `Makefile` targets:
-
-```bash
-make test
-make lint
-make fmt
 make run
 ```
 
-VSCode users should install `golang.go` and `sonarsource.sonarlint-vscode`. The workspace recommendations live in
-[.vscode/extensions.json](.vscode/extensions.json), with SonarLint connected-mode placeholders in
-[.vscode/settings.json](.vscode/settings.json).
+Default port comes from `APP_PORT`. If it is empty, Fiber uses the address passed by the caller.
 
----
+## API
 
-## Quick Commands
+Health check:
 
 ```bash
-# install deps
-go mod tidy
-
-# run locally
-go run ./cmd/ms-gofiber
-
-# hit endpoints
 curl http://localhost:8080/v1/health
+```
+
+Todo endpoints require a generic client header:
+
+```bash
+X-CLIENT-ID: demo-client
+```
+
+Create todo:
+
+```bash
 curl -X POST http://localhost:8080/v1/todos \
   -H 'Content-Type: application/json' \
-  -H 'X-PARTNER-ID: PARTNER123' \
-  -H 'CHANNEL-ID: CHN01' \
-  -H 'X-EXTERNAL-ID: 10000000000001' \
-  -d '{"title":"Demo Todo","completed":false}'
-curl http://localhost:8080/v1/client/self-call
+  -H 'X-CLIENT-ID: demo-client' \
+  -d '{"title":"write tests","completed":false}'
 ```
+
+List todos:
+
+```bash
+curl http://localhost:8080/v1/todos \
+  -H 'X-CLIENT-ID: demo-client'
+```
+
+## Response Shape
+
+Success:
+
+```json
+{
+  "status": "success",
+  "data": {}
+}
+```
+
+Error:
+
+```json
+{
+  "status": "error",
+  "message": "validation failed",
+  "fields": {
+    "Title": "required"
+  }
+}
+```
+
+## Checks
+
+```bash
+make fmt
+make test
+make race
+make coverage
+make lint
+```
+
+Coverage baseline is `100.0%`.

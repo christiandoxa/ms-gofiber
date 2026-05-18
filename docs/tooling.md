@@ -24,7 +24,7 @@ go test -gcflags=all=-l -covermode=count -coverprofile=coverage.out ./...
 bash scripts/check-coverage.sh coverage.out 100.0
 golangci-lint run ./...
 sonar-scanner
-go run ./cmd/ms-gofiber
+go run ./cmd/app
 ```
 
 `make tidy` runs `go mod tidy`. Use it only when dependency changes are expected, because it can modify `go.mod` and `go.sum`.
@@ -56,7 +56,7 @@ Install `golangci-lint` before running `make lint`.
 
 `sonar-project.properties` provides a headless scanner baseline. Run `make sonar` only after `sonar-scanner`,
 `SONAR_HOST_URL`, and `SONAR_TOKEN` are configured for your SonarQube project.
-The scanner is scoped to `cmd`, `internal`, and `pkg` so generated reports, docs, SQL, and workspace files do not pollute source analysis.
+The scanner is scoped to `cmd`, `external`, `handler`, `internal`, `pkg`, and `router` so generated reports, docs, SQL, and workspace files do not pollute source analysis.
 
 ## VSCode
 
