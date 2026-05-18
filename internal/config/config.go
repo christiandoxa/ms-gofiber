@@ -1,18 +1,10 @@
 package config
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
 
-	"github.com/joho/godotenv"
-)
-
-var (
-	statEnvFile = func() (os.FileInfo, error) { return os.Stat(".env") }
-	loadEnvFile = godotenv.Load
+	"ms-gofiber/pkg/tool"
 )
 
 type Config struct {
@@ -33,48 +25,48 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	if err := loadOptionalDotenv(); err != nil {
+	if err := tool.LoadDotenvIfExists(".env"); err != nil {
 		return nil, err
 	}
 
-	appPort, err := getenvInt("APP_PORT", 8080)
+	appPort, err := tool.IntFromEnv("APP_PORT", 8080)
 	if err != nil {
 		return nil, err
 	}
-	readTimeout, err := getenvInt("APP_READ_TIMEOUT_SEC", 10)
+	readTimeout, err := tool.IntFromEnv("APP_READ_TIMEOUT_SEC", 10)
 	if err != nil {
 		return nil, err
 	}
-	writeTimeout, err := getenvInt("APP_WRITE_TIMEOUT_SEC", 10)
+	writeTimeout, err := tool.IntFromEnv("APP_WRITE_TIMEOUT_SEC", 10)
 	if err != nil {
 		return nil, err
 	}
-	redisDB, err := getenvInt("REDIS_DB", 0)
+	redisDB, err := tool.IntFromEnv("REDIS_DB", 0)
 	if err != nil {
 		return nil, err
 	}
-	redisTTL, err := getenvInt("REDIS_DEFAULT_TTL_SEC", 60)
+	redisTTL, err := tool.IntFromEnv("REDIS_DEFAULT_TTL_SEC", 60)
 	if err != nil {
 		return nil, err
 	}
-	redisPingTimeout, err := getenvInt("REDIS_PING_TIMEOUT_MS", 5000)
+	redisPingTimeout, err := tool.IntFromEnv("REDIS_PING_TIMEOUT_MS", 5000)
 	if err != nil {
 		return nil, err
 	}
 
 	cfg := &Config{
-		AppName:         getenv("APP_NAME", "ms-gofiber"),
-		AppEnv:          getenv("APP_ENV", "local"),
-		AppHost:         getenv("APP_HOST", "0.0.0.0"),
+		AppName:         tool.StringFromEnv("APP_NAME", "ms-gofiber"),
+		AppEnv:          tool.StringFromEnv("APP_ENV", "local"),
+		AppHost:         tool.StringFromEnv("APP_HOST", "0.0.0.0"),
 		AppPort:         appPort,
 		AppReadTimeout:  readTimeout,
 		AppWriteTimeout: writeTimeout,
 
-		SQLitePath: getenv("SQLITE_PATH", "data/ms-gofiber.db"),
+		SQLitePath: tool.StringFromEnv("SQLITE_PATH", "data/ms-gofiber.db"),
 
-		RedisAddr:          getenv("REDIS_ADDR", "localhost:6379"),
+		RedisAddr:          tool.StringFromEnv("REDIS_ADDR", "localhost:6379"),
 		RedisDB:            redisDB,
-		RedisPassword:      getenv("REDIS_PASSWORD", ""),
+		RedisPassword:      tool.StringFromEnv("REDIS_PASSWORD", ""),
 		RedisDefaultTTL:    redisTTL,
 		RedisPingTimeoutMs: redisPingTimeout,
 	}
@@ -82,37 +74,6 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
-}
-
-func loadOptionalDotenv() error {
-	if _, err := statEnvFile(); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("stat .env: %w", err)
-	}
-	if err := loadEnvFile(); err != nil {
-		return fmt.Errorf("load .env: %w", err)
-	}
-	return nil
-}
-
-func getenv(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
-}
-
-func getenvInt(k string, def int) (int, error) {
-	if v := os.Getenv(k); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return 0, fmt.Errorf("invalid integer for %s: %w", k, err)
-		}
-		return n, nil
-	}
-	return def, nil
 }
 
 func (c *Config) Validate() error {

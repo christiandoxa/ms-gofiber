@@ -1,4 +1,4 @@
-package controller
+package handler
 
 import (
 	"context"
@@ -7,25 +7,23 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
+	"github.com/christiandoxa/welog"
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 
-	mw "ms-gofiber/internal/middleware"
+	mw "ms-gofiber/api/middleware"
 	"ms-gofiber/pkg/httpx"
 )
 
 func setupSelfApp() *fiber.App {
 	app := fiber.New(fiber.Config{ErrorHandler: mw.ErrorHandler()})
-	app.Use(func(c *fiber.Ctx) error {
-		c.Locals("logger", logrus.NewEntry(logrus.New()))
-		return c.Next()
-	})
+	app.Use(welog.NewFiber(fiber.Config{ErrorHandler: mw.ErrorHandler()}))
 	return app
 }
 
 func TestInternalEcho(t *testing.T) {
 	app := setupSelfApp()
-	h := NewInternal()
+	h := &Internal{}
 	app.Get("/echo", h.Echo)
 
 	res, err := app.Test(httptest.NewRequest("GET", "/echo?msg=hello", nil))
@@ -45,28 +43,26 @@ func TestInternalEcho(t *testing.T) {
 }
 
 func TestInternalSelfCallBranches(t *testing.T) {
-	orig := httpDo
-	t.Cleanup(func() { httpDo = orig })
-
-	// error path
-	httpDo = func(context.Context, httpx.Request, httpx.Logger) (*httpx.Response, error) {
+	patches := gomonkey.ApplyFunc(httpx.Do, func(context.Context, httpx.Request, httpx.Logger) (*httpx.Response, error) {
 		return nil, errors.New("boom")
-	}
+	})
 	app := setupSelfApp()
-	h := NewInternal()
+	h := &Internal{}
 	app.Get("/self", h.SelfCall)
 	assertStatus(t, app, httptest.NewRequest("GET", "/self", nil), 500)
+	patches.Reset()
 
-	// invalid upstream body path
-	httpDo = func(context.Context, httpx.Request, httpx.Logger) (*httpx.Response, error) {
+	patches = gomonkey.ApplyFunc(httpx.Do, func(context.Context, httpx.Request, httpx.Logger) (*httpx.Response, error) {
 		return &httpx.Response{StatusCode: 200, Body: []byte(`{`)}, nil
-	}
+	})
 	assertStatus(t, app, httptest.NewRequest("GET", "/self", nil), 500)
+	patches.Reset()
 
-	// success path
-	httpDo = func(context.Context, httpx.Request, httpx.Logger) (*httpx.Response, error) {
+	patches = gomonkey.ApplyFunc(httpx.Do, func(context.Context, httpx.Request, httpx.Logger) (*httpx.Response, error) {
 		return &httpx.Response{StatusCode: 200, Body: []byte(`{"echo":"ok"}`)}, nil
-	}
+	})
+	defer patches.Reset()
+
 	res, err := app.Test(httptest.NewRequest("GET", "/self", nil))
 	if err != nil {
 		t.Fatalf("request failed: %v", err)

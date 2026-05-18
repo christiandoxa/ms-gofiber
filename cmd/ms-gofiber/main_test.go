@@ -4,100 +4,127 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/alicebob/miniredis/v2"
+	"github.com/gofiber/fiber/v2"
 
+	"ms-gofiber/internal/app"
 	"ms-gofiber/internal/config"
+	"ms-gofiber/internal/startuperror"
+	"ms-gofiber/pkg/logging"
 )
 
-type fakeServer struct {
-	listenErr   error
-	shutdownErr error
-	listenBlock chan struct{}
-	unblock     sync.Once
-}
-
-func (s *fakeServer) Listen(string) error {
-	if s.listenBlock != nil {
-		<-s.listenBlock
-	}
-	return s.listenErr
-}
-
-func (s *fakeServer) ShutdownWithContext(context.Context) error {
-	if s.listenBlock != nil {
-		s.unblock.Do(func() {
-			close(s.listenBlock)
-		})
-	}
-	return s.shutdownErr
-}
-
 func TestRunBranches(t *testing.T) {
-	origLoad := loadConfig
-	origBuild := buildApp
-	origNotify := notifySignal
-	origWithTimeout := withTimeout
-	t.Cleanup(func() {
-		loadConfig = origLoad
-		buildApp = origBuild
-		notifySignal = origNotify
-		withTimeout = origWithTimeout
-	})
-
 	cfg := &config.Config{AppHost: "127.0.0.1", AppPort: 18080}
 
-	loadConfig = func() (*config.Config, error) { return nil, errors.New("cfg") }
-	if err := run(context.Background()); err == nil || !strings.Contains(err.Error(), "config load error") {
-		t.Fatalf("expected config load error, got %v", err)
-	}
+	t.Run("config error", func(t *testing.T) {
+		patches := gomonkey.ApplyFunc(config.Load, func() (*config.Config, error) {
+			return nil, errors.New("cfg")
+		})
+		defer patches.Reset()
 
-	loadConfig = func() (*config.Config, error) { return cfg, nil }
-	buildApp = func(context.Context, *config.Config) (server, closeFunc, error) {
-		return nil, nil, errors.New("build")
-	}
-	if err := run(context.Background()); err == nil || !strings.Contains(err.Error(), "app build error") {
-		t.Fatalf("expected build error, got %v", err)
-	}
+		assertStartupCode(t, run(context.Background()), startuperror.ConfigLoad)
+	})
 
-	buildApp = func(context.Context, *config.Config) (server, closeFunc, error) {
-		return &fakeServer{listenErr: errors.New("listen")}, func() error { return errors.New("close") }, nil
-	}
-	if err := run(context.Background()); err == nil || !strings.Contains(err.Error(), "fiber listen error") {
-		t.Fatalf("expected listen error, got %v", err)
-	}
+	t.Run("build error", func(t *testing.T) {
+		patches := patchRunDependencies(cfg, nil, nil, errors.New("build"))
+		defer patches.Reset()
 
-	buildApp = func(context.Context, *config.Config) (server, closeFunc, error) {
-		return &fakeServer{shutdownErr: errors.New("shutdown"), listenBlock: make(chan struct{})}, func() error { return nil }, nil
-	}
-	notifySignal = func(c chan<- os.Signal, sig ...os.Signal) {
-		go func() { c <- os.Interrupt }()
-	}
-	if err := run(context.Background()); err == nil || !strings.Contains(err.Error(), "fiber shutdown error") {
-		t.Fatalf("expected shutdown error, got %v", err)
-	}
+		assertStartupCode(t, run(context.Background()), startuperror.AppBuild)
+	})
 
-	buildApp = func(context.Context, *config.Config) (server, closeFunc, error) {
-		return &fakeServer{listenBlock: make(chan struct{})}, func() error { return errors.New("close") }, nil
-	}
-	if err := run(context.Background()); err == nil || !strings.Contains(err.Error(), "app close error") {
-		t.Fatalf("expected close error, got %v", err)
-	}
+	t.Run("listen error", func(t *testing.T) {
+		patches := patchRunDependencies(cfg, fiber.New(), func() error {
+			return errors.New("close")
+		}, nil)
+		var fiberApp *fiber.App
+		patches.ApplyMethod(fiberApp, "Listen", func(*fiber.App, string) error {
+			return errors.New("listen")
+		})
+		defer patches.Reset()
 
-	buildApp = func(context.Context, *config.Config) (server, closeFunc, error) {
-		return &fakeServer{listenBlock: make(chan struct{})}, func() error { return nil }, nil
+		assertStartupCode(t, run(context.Background()), startuperror.FiberListen)
+	})
+
+	t.Run("shutdown error", func(t *testing.T) {
+		patches := patchRunDependencies(cfg, fiber.New(), func() error { return nil }, nil)
+		patchFiberLifecycle(patches, nil, errors.New("shutdown"))
+		patches.ApplyFunc(signal.Notify, func(c chan<- os.Signal, sig ...os.Signal) {
+			go func() { c <- os.Interrupt }()
+		})
+		defer patches.Reset()
+
+		assertStartupCode(t, run(context.Background()), startuperror.FiberShutdown)
+	})
+
+	t.Run("close error", func(t *testing.T) {
+		patches := patchRunDependencies(cfg, fiber.New(), func() error {
+			return errors.New("close")
+		}, nil)
+		patchFiberLifecycle(patches, nil, nil)
+		defer patches.Reset()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		assertStartupCode(t, run(ctx), startuperror.AppClose)
+	})
+
+	t.Run("success", func(t *testing.T) {
+		patches := patchRunDependencies(cfg, fiber.New(), func() error {
+			return nil
+		}, nil)
+		patchFiberLifecycle(patches, nil, nil)
+		defer patches.Reset()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if err := run(ctx); err != nil {
+			t.Fatalf("expected success run, got %v", err)
+		}
+	})
+}
+
+func assertStartupCode(t *testing.T, err error, want startuperror.Code) {
+	t.Helper()
+
+	got, ok := startuperror.CodeOf(err)
+	if !ok || got != want {
+		t.Fatalf("expected startup code %s, got code=%s ok=%v err=%v", want, got, ok, err)
 	}
-	withTimeout = func(parent context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
-		return context.WithCancel(parent)
-	}
-	if err := runBackground(); err != nil {
-		t.Fatalf("expected success run, got %v", err)
-	}
+}
+
+func patchRunDependencies(
+	cfg *config.Config,
+	fiberApp *fiber.App,
+	closer func() error,
+	err error,
+) *gomonkey.Patches {
+	patches := gomonkey.NewPatches()
+	patches.ApplyFunc(config.Load, func() (*config.Config, error) {
+		return cfg, nil
+	})
+	patches.ApplyFunc(app.Build, func(context.Context, *config.Config) (*fiber.App, func() error, error) {
+		return fiberApp, closer, err
+	})
+	return patches
+}
+
+func patchFiberLifecycle(patches *gomonkey.Patches, listenErr, shutdownErr error) {
+	listenBlock := make(chan struct{})
+	var fiberApp *fiber.App
+	patches.ApplyMethod(fiberApp, "Listen", func(*fiber.App, string) error {
+		<-listenBlock
+		return listenErr
+	})
+	patches.ApplyMethod(fiberApp, "ShutdownWithContext", func(*fiber.App, context.Context) error {
+		close(listenBlock)
+		return shutdownErr
+	})
 }
 
 func TestDefaultBuildApp(t *testing.T) {
@@ -118,12 +145,12 @@ func TestDefaultBuildApp(t *testing.T) {
 		RedisPingTimeoutMs: 10,
 	}
 
-	server, closer, err := buildApp(context.Background(), cfg)
+	fiberApp, closer, err := app.Build(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("build app: %v", err)
 	}
-	if server == nil || closer == nil {
-		t.Fatalf("expected server and closer")
+	if fiberApp == nil || closer == nil {
+		t.Fatalf("expected app and closer")
 	}
 	if err := closer(); err != nil {
 		t.Fatalf("close app: %v", err)
@@ -131,29 +158,35 @@ func TestDefaultBuildApp(t *testing.T) {
 }
 
 func TestMainFunction(t *testing.T) {
-	origRunMain := runMain
-	origFatalf := fatalf
-	t.Cleanup(func() {
-		runMain = origRunMain
-		fatalf = origFatalf
+	t.Run("success", func(t *testing.T) {
+		fatalCalled := false
+		patches := gomonkey.NewPatches()
+		patches.ApplyFunc(run, func(context.Context) error { return nil })
+		patches.ApplyFunc(logging.Fatalf, func(format string, v ...any) {
+			fatalCalled = true
+		})
+		defer patches.Reset()
+
+		main()
+		if fatalCalled {
+			t.Fatalf("fatal should not be called on nil error")
+		}
 	})
 
-	fatalCalled := false
-	fatalMsg := ""
-	fatalf = func(format string, v ...any) {
-		fatalCalled = true
-		fatalMsg = format
-	}
+	t.Run("fatal", func(t *testing.T) {
+		fatalCalled := false
+		fatalMsg := ""
+		patches := gomonkey.NewPatches()
+		patches.ApplyFunc(run, func(context.Context) error { return errors.New("boom") })
+		patches.ApplyFunc(logging.Fatalf, func(format string, v ...any) {
+			fatalCalled = true
+			fatalMsg = format
+		})
+		defer patches.Reset()
 
-	runMain = func() error { return nil }
-	main()
-	if fatalCalled {
-		t.Fatalf("fatal should not be called on nil error")
-	}
-
-	runMain = func() error { return errors.New("boom") }
-	main()
-	if !fatalCalled || !strings.Contains(fatalMsg, "%v") {
-		t.Fatalf("expected fatal called with format, called=%v msg=%s", fatalCalled, fatalMsg)
-	}
+		main()
+		if !fatalCalled || !strings.Contains(fatalMsg, "%v") {
+			t.Fatalf("expected fatal called with format, called=%v msg=%s", fatalCalled, fatalMsg)
+		}
+	})
 }

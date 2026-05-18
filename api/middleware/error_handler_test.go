@@ -6,18 +6,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/christiandoxa/welog"
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 
 	"ms-gofiber/pkg/apperror"
 )
 
 func setupErrorApp() *fiber.App {
 	app := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
-	app.Use(func(c *fiber.Ctx) error {
-		c.Locals("logger", logrus.NewEntry(logrus.New()))
-		return c.Next()
-	})
+	app.Use(welog.NewFiber(fiber.Config{ErrorHandler: ErrorHandler()}))
 	return app
 }
 

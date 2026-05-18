@@ -1,4 +1,4 @@
-package controller
+package handler
 
 import (
 	"context"
@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/christiandoxa/welog"
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 
+	mw "ms-gofiber/api/middleware"
 	"ms-gofiber/internal/app/domain"
-	mw "ms-gofiber/internal/middleware"
 	"ms-gofiber/pkg/apperror"
 )
 
@@ -43,10 +43,7 @@ func (m mockValidator) ValidateStruct(any) error { return m.err }
 
 func setupControllerApp() *fiber.App {
 	app := fiber.New(fiber.Config{ErrorHandler: mw.ErrorHandler()})
-	app.Use(func(c *fiber.Ctx) error {
-		c.Locals("logger", logrus.NewEntry(logrus.New()))
-		return c.Next()
-	})
+	app.Use(welog.NewFiber(fiber.Config{ErrorHandler: mw.ErrorHandler()}))
 	return app
 }
 

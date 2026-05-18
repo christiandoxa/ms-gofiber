@@ -18,50 +18,35 @@ type TodoCache interface {
 	DeleteTodo(ctx context.Context, id domain.TodoID) error
 }
 
-type CacheErrorReporter func(ctx context.Context, operation string, id domain.TodoID, err error)
-
-type TodoOption func(*todo)
-
-func WithCacheErrorReporter(reporter CacheErrorReporter) TodoOption {
-	return func(u *todo) {
-		if reporter != nil {
-			u.reportCacheError = reporter
-		}
-	}
-}
-
-type TodoUseCase interface {
-	Create(ctx context.Context, in *domain.Todo) (*domain.Todo, error)
-	Get(ctx context.Context, id domain.TodoID) (*domain.Todo, error)
-	List(ctx context.Context, limit, offset int) ([]*domain.Todo, error)
-	Update(ctx context.Context, in *domain.Todo) (*domain.Todo, error)
-	Delete(ctx context.Context, id domain.TodoID) error
-}
-
-type todo struct {
+type Todo struct {
 	repo             repository.TodoRepository
 	cache            TodoCache
 	ttl              time.Duration
-	reportCacheError CacheErrorReporter
+	reportCacheError func(context.Context, string, domain.TodoID, error)
 }
 
-func NewTodo(repo repository.TodoRepository, cache TodoCache, defaultTTL time.Duration, opts ...TodoOption) TodoUseCase {
-	u := &todo{
+func NewTodo(
+	repo repository.TodoRepository,
+	cache TodoCache,
+	defaultTTL time.Duration,
+	cacheErrorReporter func(context.Context, string, domain.TodoID, error),
+) *Todo {
+	if cacheErrorReporter == nil {
+		cacheErrorReporter = noopCacheErrorReporter
+	}
+
+	return &Todo{
 		repo:             repo,
 		cache:            cache,
 		ttl:              defaultTTL,
-		reportCacheError: noopCacheErrorReporter,
+		reportCacheError: cacheErrorReporter,
 	}
-	for _, opt := range opts {
-		opt(u)
-	}
-	return u
 }
 
 func noopCacheErrorReporter(context.Context, string, domain.TodoID, error) {
 }
 
-func (u *todo) Create(ctx context.Context, in *domain.Todo) (*domain.Todo, error) {
+func (u *Todo) Create(ctx context.Context, in *domain.Todo) (*domain.Todo, error) {
 	in.ID = domain.TodoID(uuid.New().String())
 	in.CreatedAt = time.Now().UTC()
 	in.UpdatedAt = in.CreatedAt
@@ -74,7 +59,7 @@ func (u *todo) Create(ctx context.Context, in *domain.Todo) (*domain.Todo, error
 	return in, nil
 }
 
-func (u *todo) Get(ctx context.Context, id domain.TodoID) (*domain.Todo, error) {
+func (u *Todo) Get(ctx context.Context, id domain.TodoID) (*domain.Todo, error) {
 	if u.cache != nil {
 		t, found, err := u.cache.GetTodo(ctx, id)
 		if err == nil && found {
@@ -99,7 +84,7 @@ func (u *todo) Get(ctx context.Context, id domain.TodoID) (*domain.Todo, error) 
 	return t, nil
 }
 
-func (u *todo) List(ctx context.Context, limit, offset int) ([]*domain.Todo, error) {
+func (u *Todo) List(ctx context.Context, limit, offset int) ([]*domain.Todo, error) {
 	todos, err := u.repo.List(ctx, limit, offset)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.ErrDB, "failed to list todos", err)
@@ -107,7 +92,7 @@ func (u *todo) List(ctx context.Context, limit, offset int) ([]*domain.Todo, err
 	return todos, nil
 }
 
-func (u *todo) Update(ctx context.Context, in *domain.Todo) (*domain.Todo, error) {
+func (u *Todo) Update(ctx context.Context, in *domain.Todo) (*domain.Todo, error) {
 	in.UpdatedAt = time.Now().UTC()
 	if err := u.repo.Update(ctx, in); err != nil {
 		if errors.Is(err, domain.ErrTodoNotFound) {
@@ -125,7 +110,7 @@ func (u *todo) Update(ctx context.Context, in *domain.Todo) (*domain.Todo, error
 	return in, nil
 }
 
-func (u *todo) Delete(ctx context.Context, id domain.TodoID) error {
+func (u *Todo) Delete(ctx context.Context, id domain.TodoID) error {
 	if err := u.repo.Delete(ctx, id); err != nil {
 		if errors.Is(err, domain.ErrTodoNotFound) {
 			return apperror.New(apperror.ErrNotFound, "todo not found")

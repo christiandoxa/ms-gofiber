@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -135,7 +136,8 @@ func TestTodoRepositoryListCloseError(t *testing.T) {
 	createTodo(t, repo, ctx, "close-error", "x", false, now)
 
 	expected := errors.New("close rows error")
-	patches := gomonkey.ApplyGlobalVar(&closeRows, func(*sql.Rows) error {
+	var rows *sql.Rows
+	patches := gomonkey.ApplyMethod(rows, "Close", func(*sql.Rows) error {
 		return expected
 	})
 	defer patches.Reset()
@@ -222,12 +224,6 @@ func TestTodoRepositoryAdditionalBranches(t *testing.T) {
 		t.Fatalf("expected updated_at parse error")
 	}
 
-	origRowsAffected := rowsAffected
-	t.Cleanup(func() { rowsAffected = origRowsAffected })
-	rowsAffected = func(sql.Result) (int64, error) {
-		return 0, errors.New("rows affected error")
-	}
-
 	if _, err := repo.Create(ctx, &domain.Todo{
 		ID:        "rows-affected",
 		Title:     "x",
@@ -237,6 +233,15 @@ func TestTodoRepositoryAdditionalBranches(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create rows-affected row error: %v", err)
 	}
+
+	sampleResult, err := db.Exec(`UPDATE todos SET title = title WHERE id = ?`, "rows-affected")
+	if err != nil {
+		t.Fatalf("create rows affected sample result: %v", err)
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(sampleResult), "RowsAffected", func(sql.Result) (int64, error) {
+		return 0, errors.New("rows affected error")
+	})
+	defer patches.Reset()
 
 	if err := repo.Update(ctx, &domain.Todo{
 		ID:        "rows-affected",

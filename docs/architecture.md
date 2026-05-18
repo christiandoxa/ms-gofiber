@@ -6,18 +6,22 @@ This service follows a clean architecture shape:
 
 * `internal/app/domain`: domain entities and repository interfaces.
 * `internal/app/application/usecase`: application flows that coordinate domain logic through interfaces.
-* `internal/app/adapter/controller`: Fiber handlers and route wiring.
-* `internal/app/adapter/dto`: request DTOs for transport validation.
-* `internal/app/adapter/presenter`: response mapping from domain/application data to API payloads.
+* `internal/startuperror`: stable startup error codes and wrappers for process-level failure documentation.
+* `api/handler`: Fiber handlers/controllers.
+* `api/router`: route wiring.
+* `api/dto`: request DTOs for transport validation.
+* `api/presenter`: response mapping from domain/application data to API payloads.
+* `api/respond`: response envelope and HTTP status mapping.
+* `api/middleware`: Fiber middleware and API error handling.
+* `api/validation`: request-specific struct-level validation rules.
 * `internal/app/adapter/repository`: concrete persistence and cache implementations.
-* `internal/app/adapter/validation`: request-specific struct-level validation rules.
-* `pkg/`: reusable infrastructure helpers such as database setup, Redis setup, HTTP client wrapping, APM hooks, app errors, and response envelopes.
+* `pkg/`: reusable infrastructure helpers such as database setup, Redis setup, HTTP client wrapping, APM hooks, app errors, logging, and generic tools.
 
 ## Dependency Direction
 
 Dependencies must point inward:
 
-* Controllers may call usecases and presenters.
+* API handlers may call usecases and presenters.
 * Usecases may call domain interfaces.
 * Repository implementations may satisfy domain interfaces.
 * Domain code must not import adapters, frameworks, logging, APM, SQL, Redis, or configuration.
@@ -27,12 +31,23 @@ Dependencies must point inward:
 
 Keep business decisions close to the domain or usecase that owns them:
 
-* Request parsing and header validation belong in controllers or middleware.
+* Request parsing and header validation belong in API handlers or middleware.
 * Domain invariants belong in domain entities or usecases.
 * Storage details belong in repository implementations.
 * Response status and envelope mapping belong in presenter/respond layers.
 * Observability, logging, and transport concerns must not leak into domain entities.
 * Best-effort infrastructure failures must be explicit and observable, even when they do not fail the primary usecase flow.
+* Application code should use `pkg/logging` instead of calling `welog` logger internals directly.
+
+## Startup Error Codes
+
+Startup failures use `internal/startuperror.Code` values so logs and documentation can reference stable identifiers:
+
+* `startup.config_load`: configuration loading failed.
+* `startup.app_build`: application dependency wiring failed.
+* `startup.fiber_listen`: Fiber listen failed.
+* `startup.fiber_shutdown`: Fiber graceful shutdown failed.
+* `startup.app_close`: application resource close failed.
 
 ## Design Pattern Usage Policy
 

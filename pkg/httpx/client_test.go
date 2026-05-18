@@ -10,12 +10,23 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"go.elastic.co/apm/module/apmhttp/v2"
 )
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
+type errorTransport struct{}
 
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func (errorTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("transport error")
+}
+
+type responseTransport struct {
+	response *http.Response
+}
+
+func (t responseTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return t.response, nil
+}
 
 type errCloseBody struct {
 	io.Reader
@@ -66,18 +77,8 @@ func TestHeaderToInterface(t *testing.T) {
 }
 
 func TestDoBranches(t *testing.T) {
-	origReq := newHTTPRequest
-	origWrap := wrapHTTPClient
-	t.Cleanup(func() {
-		newHTTPRequest = origReq
-		wrapHTTPClient = origWrap
-	})
-	// new request error
-	newHTTPRequest = func(method, url string, body io.Reader) (*http.Request, error) {
-		return nil, errors.New("new request error")
-	}
 	_, err := Do(context.Background(), Request{
-		Method: "GET",
+		Method: "bad\nmethod",
 		URL:    "http://example.com",
 	}, noopLogger{})
 	if err == nil {
@@ -85,12 +86,9 @@ func TestDoBranches(t *testing.T) {
 	}
 
 	// client do error path
-	newHTTPRequest = origReq
-	wrapHTTPClient = func(_ *http.Client, _ ...apmhttp.ClientOption) *http.Client {
-		return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-			return nil, errors.New("transport error")
-		})}
-	}
+	patches := gomonkey.ApplyFunc(apmhttp.WrapClient, func(_ *http.Client, _ ...apmhttp.ClientOption) *http.Client {
+		return &http.Client{Transport: errorTransport{}}
+	})
 	_, err = Do(context.Background(), Request{
 		Method:  "GET",
 		URL:     "http://example.com",
@@ -99,17 +97,18 @@ func TestDoBranches(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected do error")
 	}
+	patches.Reset()
 
 	// success path with close-error branch
-	wrapHTTPClient = func(_ *http.Client, _ ...apmhttp.ClientOption) *http.Client {
-		return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-			return &http.Response{
+	patches = gomonkey.ApplyFunc(apmhttp.WrapClient, func(_ *http.Client, _ ...apmhttp.ClientOption) *http.Client {
+		return &http.Client{Transport: responseTransport{
+			response: &http.Response{
 				StatusCode: 200,
 				Header:     http.Header{"X-Test": []string{"ok"}},
 				Body:       errCloseBody{Reader: bytes.NewBufferString(`{"ok":true}`)},
-			}, nil
-		})}
-	}
+			},
+		}}
+	})
 	res, err := Do(context.Background(), Request{
 		Method:      "GET",
 		URL:         "http://example.com",
@@ -124,18 +123,19 @@ func TestDoBranches(t *testing.T) {
 	if res.StatusCode != 200 || string(res.Body) != `{"ok":true}` || res.Header.Get("X-Test") != "ok" {
 		t.Fatalf("unexpected do response status=%d body=%s hdr=%v", res.StatusCode, string(res.Body), res.Header)
 	}
+	patches.Reset()
 
 	// response body read error path
 	logger := &captureLogger{}
-	wrapHTTPClient = func(_ *http.Client, _ ...apmhttp.ClientOption) *http.Client {
-		return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-			return &http.Response{
+	patches = gomonkey.ApplyFunc(apmhttp.WrapClient, func(_ *http.Client, _ ...apmhttp.ClientOption) *http.Client {
+		return &http.Client{Transport: responseTransport{
+			response: &http.Response{
 				StatusCode: 502,
 				Header:     http.Header{"X-Test": []string{"read-error"}},
 				Body:       &errReadBody{data: []byte("partial")},
-			}, nil
-		})}
-	}
+			},
+		}}
+	})
 	res, err = Do(context.Background(), Request{
 		Method: "GET",
 		URL:    "http://example.com",
@@ -149,6 +149,7 @@ func TestDoBranches(t *testing.T) {
 	if logger.res.Status != 502 || logger.res.Header["X-Test"] != "read-error" || string(logger.res.Body) != "partial" {
 		t.Fatalf("unexpected logged read-error response: %+v", logger.res)
 	}
+	patches.Reset()
 
 	// real server success path
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -158,7 +159,6 @@ func TestDoBranches(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	wrapHTTPClient = origWrap
 	res, err = Do(context.Background(), Request{
 		Method: "GET",
 		URL:    srv.URL,

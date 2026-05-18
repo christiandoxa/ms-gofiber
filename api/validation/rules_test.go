@@ -1,12 +1,15 @@
 package validation
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	v10 "github.com/go-playground/validator/v10"
 
-	"ms-gofiber/internal/app/adapter/dto"
+	"ms-gofiber/api/dto"
+	appvalidator "ms-gofiber/internal/validator"
 )
 
 type stubStructLevel struct {
@@ -27,9 +30,31 @@ func (s *stubStructLevel) ReportValidationErrors(string, string, v10.ValidationE
 }
 
 func TestRegisterStructRules(t *testing.T) {
-	validate := v10.New()
-	if err := RegisterStructRules(validate); err != nil {
-		t.Fatalf("register struct rules: %v", err)
+	validate, err := appvalidator.NewStructValidator()
+	if err != nil {
+		t.Fatalf("new validator: %v", err)
+	}
+	registerStructRules(validate)
+}
+
+func TestNewStructValidator(t *testing.T) {
+	validate, err := NewStructValidator()
+	if err != nil {
+		t.Fatalf("new api validator: %v", err)
+	}
+	if err := validate.ValidateStruct(dto.TodoUpsertRequest{Title: "abc"}); err != nil {
+		t.Fatalf("validate struct: %v", err)
+	}
+}
+
+func TestNewStructValidatorBaseError(t *testing.T) {
+	patches := gomonkey.ApplyFunc(appvalidator.NewStructValidator, func() (*appvalidator.StructValidator, error) {
+		return nil, errors.New("base validator")
+	})
+	defer patches.Reset()
+
+	if _, err := NewStructValidator(); err == nil {
+		t.Fatalf("expected base validator error")
 	}
 }
 

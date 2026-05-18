@@ -11,14 +11,6 @@ import (
 	"ms-gofiber/internal/app/domain"
 )
 
-var rowsAffected = func(res sql.Result) (int64, error) {
-	return res.RowsAffected()
-}
-
-var closeRows = func(rows *sql.Rows) error {
-	return rows.Close()
-}
-
 // Todo is sqlite implementation of todo repository
 type Todo struct {
 	db *sql.DB
@@ -84,11 +76,11 @@ func (r *Todo) List(ctx context.Context, limit, offset int) ([]*domain.Todo, err
 	for rows.Next() {
 		t, scanErr := scanTodo(rows)
 		if scanErr != nil {
-			return nil, errors.Join(scanErr, closeRows(rows))
+			return nil, errors.Join(scanErr, rows.Close())
 		}
 		res = append(res, t)
 	}
-	if err := closeRows(rows); err != nil {
+	if err := rows.Close(); err != nil {
 		return nil, err
 	}
 	return res, rows.Err()
@@ -111,7 +103,7 @@ func (r *Todo) Update(ctx context.Context, t *domain.Todo) error {
 		return err
 	}
 
-	affected, err := rowsAffected(res)
+	affected, err := res.RowsAffected()
 	if err != nil {
 		return err
 	}
@@ -131,7 +123,7 @@ func (r *Todo) Delete(ctx context.Context, id domain.TodoID) error {
 		return err
 	}
 
-	affected, err := rowsAffected(res)
+	affected, err := res.RowsAffected()
 	if err != nil {
 		return err
 	}

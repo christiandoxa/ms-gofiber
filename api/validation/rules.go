@@ -5,30 +5,13 @@ import (
 
 	"github.com/go-playground/validator/v10"
 
-	"ms-gofiber/internal/app/adapter/dto"
+	"ms-gofiber/api/dto"
+	appvalidator "ms-gofiber/internal/validator"
 )
 
-type structRule struct {
-	fn     validator.StructLevelFunc
-	target any
-}
-
-var customStructRules = []structRule{
-	{
-		fn:     todoUpsertStructRule,
-		target: dto.TodoUpsertRequest{},
-	},
-	{
-		fn:     prepareExampleStructRule,
-		target: dto.PrepareExampleRequest{},
-	},
-}
-
-func RegisterStructRules(validate *validator.Validate) error {
-	for _, r := range customStructRules {
-		validate.RegisterStructValidation(r.fn, r.target)
-	}
-	return nil
+func registerStructRules(validate *appvalidator.StructValidator) {
+	validate.RegisterStructValidation(todoUpsertStructRule, dto.TodoUpsertRequest{})
+	validate.RegisterStructValidation(prepareExampleStructRule, dto.PrepareExampleRequest{})
 }
 
 func todoUpsertStructRule(sl validator.StructLevel) {

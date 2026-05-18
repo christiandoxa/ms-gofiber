@@ -4,8 +4,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	v10 "github.com/go-playground/validator/v10"
 
+	"ms-gofiber/internal/validator/rule"
 	"ms-gofiber/pkg/apperror"
 )
 
@@ -14,6 +16,8 @@ func TestStructValidator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new struct validator: %v", err)
 	}
+
+	sv.RegisterStructValidation(func(sl v10.StructLevel) {}, struct{}{})
 
 	type sample struct {
 		Name string `validate:"required,alphanum_with_space"`
@@ -47,11 +51,13 @@ func TestStructValidator(t *testing.T) {
 	}
 }
 
-func TestNewStructValidatorRegisterError(t *testing.T) {
-	_, err := NewStructValidator(func(*v10.Validate) error {
-		return errors.New("custom register error")
+func TestNewStructValidatorDefaultRegisterError(t *testing.T) {
+	patches := gomonkey.ApplyFunc(rule.RegisterRule, func(*v10.Validate) error {
+		return errors.New("default register error")
 	})
-	if err == nil {
-		t.Fatalf("expected register error")
+	defer patches.Reset()
+
+	if _, err := NewStructValidator(); err == nil {
+		t.Fatalf("expected default register error")
 	}
 }

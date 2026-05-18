@@ -1,21 +1,18 @@
-package controller
+package handler
 
 import (
 	"testing"
 
+	"github.com/christiandoxa/welog"
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 
-	mw "ms-gofiber/internal/middleware"
+	mw "ms-gofiber/api/middleware"
 	"ms-gofiber/pkg/apperror"
 )
 
 func setupValidationApp() *fiber.App {
 	app := fiber.New(fiber.Config{ErrorHandler: mw.ErrorHandler()})
-	app.Use(func(c *fiber.Ctx) error {
-		c.Locals("logger", logrus.NewEntry(logrus.New()))
-		return c.Next()
-	})
+	app.Use(welog.NewFiber(fiber.Config{ErrorHandler: mw.ErrorHandler()}))
 	return app
 }
 

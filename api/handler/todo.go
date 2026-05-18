@@ -1,26 +1,34 @@
-package controller
+package handler
 
 import (
+	"context"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"go.elastic.co/apm/v2"
 
-	"ms-gofiber/internal/app/adapter/dto"
-	"ms-gofiber/internal/app/adapter/presenter"
-	"ms-gofiber/internal/app/application/usecase"
+	"ms-gofiber/api/dto"
+	"ms-gofiber/api/presenter"
+	"ms-gofiber/api/respond"
 	"ms-gofiber/internal/app/domain"
 	"ms-gofiber/internal/validator"
 	"ms-gofiber/pkg/apperror"
-	"ms-gofiber/pkg/respond"
 )
 
+type TodoUseCase interface {
+	Create(ctx context.Context, in *domain.Todo) (*domain.Todo, error)
+	Get(ctx context.Context, id domain.TodoID) (*domain.Todo, error)
+	List(ctx context.Context, limit, offset int) ([]*domain.Todo, error)
+	Update(ctx context.Context, in *domain.Todo) (*domain.Todo, error)
+	Delete(ctx context.Context, id domain.TodoID) error
+}
+
 type Todo struct {
-	usecase  usecase.TodoUseCase
+	usecase  TodoUseCase
 	validate RequestValidator
 }
 
-func NewTodo(usecase usecase.TodoUseCase, v RequestValidator) *Todo {
+func NewTodo(usecase TodoUseCase, v RequestValidator) *Todo {
 	return &Todo{
 		usecase:  usecase,
 		validate: v,

@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/alicebob/miniredis/v2"
+	"github.com/christiandoxa/welog"
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
-	"github.com/sirupsen/logrus"
 
 	"ms-gofiber/pkg/apperror"
 )
@@ -24,14 +25,11 @@ type mockReqValidator struct {
 func (m mockReqValidator) ValidateStruct(any) error { return m.err }
 
 func withLogger(app *fiber.App) {
-	app.Use(func(c *fiber.Ctx) error {
-		c.Locals("logger", logrus.NewEntry(logrus.New()))
-		return c.Next()
-	})
+	app.Use(welog.NewFiber(fiber.Config{ErrorHandler: ErrorHandler()}))
 }
 
 func TestDefaultSkipHelpers(t *testing.T) {
-	s := DefaultSkippedPaths()
+	s := skippedPaths()
 	if !shouldSkipPath("/v1/health", s) {
 		t.Fatalf("health should be skipped")
 	}
@@ -41,14 +39,14 @@ func TestDefaultSkipHelpers(t *testing.T) {
 }
 
 func TestHeaderGuardBranches(t *testing.T) {
-	orig := reqHeaderParser
-	t.Cleanup(func() { reqHeaderParser = orig })
-
 	// parse error branch
-	reqHeaderParser = func(c *fiber.Ctx, out *RequestHeader) error { return errors.New("parse") }
+	var fiberCtx *fiber.Ctx
+	patches := gomonkey.ApplyMethod(fiberCtx, "ReqHeaderParser", func(*fiber.Ctx, interface{}) error {
+		return errors.New("parse")
+	})
 	app := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
 	withLogger(app)
-	app.Use(HeaderGuard(mockReqValidator{}, map[string]struct{}{}))
+	app.Use(HeaderGuard(mockReqValidator{}))
 	app.Get("/x", func(c *fiber.Ctx) error { return c.SendStatus(200) })
 	res, err := app.Test(httptest.NewRequest("GET", "/x", nil))
 	if err != nil {
@@ -57,12 +55,12 @@ func TestHeaderGuardBranches(t *testing.T) {
 	if res.StatusCode != 400 {
 		t.Fatalf("expected 400, got %d", res.StatusCode)
 	}
+	patches.Reset()
 
 	// validation error branch
-	reqHeaderParser = orig
 	app2 := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
 	withLogger(app2)
-	app2.Use(HeaderGuard(mockReqValidator{err: apperror.New(apperror.ErrValidation, "invalid")}, map[string]struct{}{}))
+	app2.Use(HeaderGuard(mockReqValidator{err: apperror.New(apperror.ErrValidation, "invalid")}))
 	app2.Get("/x", func(c *fiber.Ctx) error { return c.SendStatus(200) })
 	req := httptest.NewRequest("GET", "/x", nil)
 	req.Header.Set("X-PARTNER-ID", "A1")
@@ -79,7 +77,7 @@ func TestHeaderGuardBranches(t *testing.T) {
 	// success branch + set locals
 	app3 := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
 	withLogger(app3)
-	app3.Use(HeaderGuard(mockReqValidator{}, nil)) // nil covers default skipped paths.
+	app3.Use(HeaderGuard(mockReqValidator{}))
 	app3.Get("/v1/todos", func(c *fiber.Ctx) error {
 		header, ok := c.Locals("request_header").(RequestHeader)
 		return c.JSON(fiber.Map{"ok": ok, "partner": header.XPartnerID})
@@ -106,7 +104,7 @@ func TestHeaderGuardBranches(t *testing.T) {
 	// skip path branch
 	app4 := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
 	withLogger(app4)
-	app4.Use(HeaderGuard(mockReqValidator{err: apperror.New(apperror.ErrValidation, "invalid")}, nil))
+	app4.Use(HeaderGuard(mockReqValidator{err: apperror.New(apperror.ErrValidation, "invalid")}))
 	app4.Get("/v1/health", func(c *fiber.Ctx) error { return c.SendStatus(200) })
 	res, err = app4.Test(httptest.NewRequest("GET", "/v1/health", nil))
 	if err != nil {
@@ -121,7 +119,7 @@ func TestExternalIDGuardBranches(t *testing.T) {
 	// missing header
 	app := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
 	withLogger(app)
-	app.Use(ExternalIDGuard(nil, 0, map[string]struct{}{}))
+	app.Use(ExternalIDGuard(nil, 0))
 	app.Get("/x", func(c *fiber.Ctx) error { return c.SendStatus(200) })
 	res, err := app.Test(httptest.NewRequest("GET", "/x", nil))
 	if err != nil {
@@ -134,7 +132,7 @@ func TestExternalIDGuardBranches(t *testing.T) {
 	// redis nil branch
 	app2 := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
 	withLogger(app2)
-	app2.Use(ExternalIDGuard(nil, 0, map[string]struct{}{}))
+	app2.Use(ExternalIDGuard(nil, 0))
 	app2.Get("/x", func(c *fiber.Ctx) error { return c.SendStatus(200) })
 	req := httptest.NewRequest("GET", "/x", nil)
 	req.Header.Set("X-EXTERNAL-ID", "100")
@@ -156,7 +154,7 @@ func TestExternalIDGuardBranches(t *testing.T) {
 	})
 	app3 := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
 	withLogger(app3)
-	app3.Use(ExternalIDGuard(badRedis, time.Second, map[string]struct{}{}))
+	app3.Use(ExternalIDGuard(badRedis, time.Second))
 	app3.Get("/x", func(c *fiber.Ctx) error { return c.SendStatus(200) })
 	req = httptest.NewRequest("GET", "/x", nil)
 	req.Header.Set("X-EXTERNAL-ID", "100")
@@ -178,7 +176,7 @@ func TestExternalIDGuardBranches(t *testing.T) {
 
 	app4 := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
 	withLogger(app4)
-	app4.Use(ExternalIDGuard(goodRedis, time.Second, nil)) // nil to cover default skip map + ttl>0 branch
+	app4.Use(ExternalIDGuard(goodRedis, time.Second))
 	app4.Get("/v1/todos", func(c *fiber.Ctx) error { return c.SendStatus(200) })
 
 	req = httptest.NewRequest("GET", "/v1/todos", nil)
@@ -204,7 +202,7 @@ func TestExternalIDGuardBranches(t *testing.T) {
 	// skip path
 	app5 := fiber.New(fiber.Config{ErrorHandler: ErrorHandler()})
 	withLogger(app5)
-	app5.Use(ExternalIDGuard(goodRedis, time.Second, nil))
+	app5.Use(ExternalIDGuard(goodRedis, time.Second))
 	app5.Get("/v1/health", func(c *fiber.Ctx) error { return c.SendStatus(200) })
 	res, err = app5.Test(httptest.NewRequest("GET", "/v1/health", nil))
 	if err != nil {

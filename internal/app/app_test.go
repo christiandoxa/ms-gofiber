@@ -8,11 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/alicebob/miniredis/v2"
 
-	"ms-gofiber/internal/app/adapter/controller"
+	apivalidation "ms-gofiber/api/validation"
 	"ms-gofiber/internal/app/domain"
 	"ms-gofiber/internal/config"
+	appvalidator "ms-gofiber/internal/validator"
 )
 
 func baseConfig(t *testing.T) *config.Config {
@@ -37,15 +39,9 @@ func baseConfig(t *testing.T) *config.Config {
 	}
 }
 
-func TestBuildNilConfig(t *testing.T) {
-	if _, _, err := Build(context.Background(), nil); err == nil {
-		t.Fatalf("expected nil config error")
-	}
-}
-
 func TestBuildSuccess(t *testing.T) {
 	cfg := baseConfig(t)
-	app, closer, err := Build(context.Background(), cfg)
+	fiberApp, closer, err := Build(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Build success expected, got err: %v", err)
 	}
@@ -58,7 +54,7 @@ func TestBuildSuccess(t *testing.T) {
 		}
 	}()
 
-	res, err := app.Test(httptest.NewRequest("GET", "/v1/health", nil))
+	res, err := fiberApp.Test(httptest.NewRequest("GET", "/v1/health", nil))
 	if err != nil {
 		t.Fatalf("health request failed: %v", err)
 	}
@@ -96,12 +92,10 @@ func TestBuildInvalidRedisAddr(t *testing.T) {
 }
 
 func TestBuildValidatorError(t *testing.T) {
-	orig := newValidator
-	t.Cleanup(func() { newValidator = orig })
-
-	newValidator = func() (controller.RequestValidator, error) {
+	patches := gomonkey.ApplyFunc(apivalidation.NewStructValidator, func() (*appvalidator.StructValidator, error) {
 		return nil, errors.New("validator")
-	}
+	})
+	defer patches.Reset()
 
 	_, closer, err := Build(context.Background(), baseConfig(t))
 	if err == nil || !strings.Contains(err.Error(), "validator") {

@@ -72,7 +72,7 @@ func TestTodoUsecaseCreate(t *testing.T) {
 			t.Fatalf("expected generated id and timestamps")
 		}
 		return td.ID, nil
-	}}, nil, time.Second)
+	}}, nil, time.Second, nil)
 
 	out, err := u.Create(context.Background(), &domain.Todo{Title: "x"})
 	if err != nil || out.ID == "" {
@@ -81,14 +81,14 @@ func TestTodoUsecaseCreate(t *testing.T) {
 
 	uErr := NewTodo(mockRepo{create: func(context.Context, *domain.Todo) (domain.TodoID, error) {
 		return "", errors.New("db")
-	}}, nil, time.Second)
+	}}, nil, time.Second, nil)
 	_, err = uErr.Create(context.Background(), &domain.Todo{Title: "x"})
 	assertAppErrorCode(t, err, apperror.ErrDB)
 }
 
-func TestCacheErrorReporterOptions(t *testing.T) {
+func TestNewTodoNilCacheErrorReporter(t *testing.T) {
 	noopCacheErrorReporter(context.Background(), "set", "1", errors.New("cache"))
-	NewTodo(mockRepo{}, nil, time.Second, WithCacheErrorReporter(nil))
+	NewTodo(mockRepo{}, nil, time.Second, nil)
 }
 
 func TestTodoUsecaseGet(t *testing.T) {
@@ -104,6 +104,7 @@ func TestTodoUsecaseGet(t *testing.T) {
 			return &domain.Todo{ID: "1", Title: "a", Completed: true, CreatedAt: now, UpdatedAt: now}, true, nil
 		}},
 		time.Second,
+		nil,
 	)
 	out, err := uCacheHit.Get(context.Background(), "1")
 	if err != nil || out.ID != "1" {
@@ -126,6 +127,7 @@ func TestTodoUsecaseGet(t *testing.T) {
 			},
 		},
 		time.Second,
+		nil,
 	)
 	out, err = uFallback.Get(context.Background(), "2")
 	if err != nil || out.ID != "2" || !setCalled {
@@ -146,9 +148,9 @@ func TestTodoUsecaseGet(t *testing.T) {
 			},
 		},
 		time.Second,
-		WithCacheErrorReporter(func(_ context.Context, operation string, id domain.TodoID, err error) {
+		func(_ context.Context, operation string, id domain.TodoID, err error) {
 			reportedSet = operation == "set" && id == "3" && err != nil
-		}),
+		},
 	)
 	out, err = uSetErr.Get(context.Background(), "3")
 	if err != nil || out.ID != "3" {
@@ -160,13 +162,13 @@ func TestTodoUsecaseGet(t *testing.T) {
 
 	uNotFound := NewTodo(mockRepo{get: func(context.Context, domain.TodoID) (*domain.Todo, error) {
 		return nil, domain.ErrTodoNotFound
-	}}, nil, time.Second)
+	}}, nil, time.Second, nil)
 	_, err = uNotFound.Get(context.Background(), "x")
 	assertAppErrorCode(t, err, apperror.ErrNotFound)
 
 	uDBErr := NewTodo(mockRepo{get: func(context.Context, domain.TodoID) (*domain.Todo, error) {
 		return nil, errors.New("db")
-	}}, nil, time.Second)
+	}}, nil, time.Second, nil)
 	_, err = uDBErr.Get(context.Background(), "x")
 	assertAppErrorCode(t, err, apperror.ErrDB)
 }
@@ -183,6 +185,7 @@ func TestTodoUsecaseListUpdateDelete(t *testing.T) {
 		},
 		mockCache{delete: func(context.Context, domain.TodoID) error { return nil }},
 		time.Second,
+		nil,
 	)
 
 	list, err := u.List(context.Background(), 10, 0)
@@ -210,7 +213,7 @@ func TestTodoUsecaseListUpdateDelete(t *testing.T) {
 		mockRepo{update: func(context.Context, *domain.Todo) error { return nil }},
 		mockCache{delete: func(context.Context, domain.TodoID) error { return errors.New("cache delete") }},
 		time.Second,
-		WithCacheErrorReporter(reportDelete),
+		reportDelete,
 	)
 	if _, err := uUpdateCacheErr.Update(context.Background(), &domain.Todo{ID: "cache", Title: "u"}); err != nil {
 		t.Fatalf("expected update cache delete error to be ignored, got %v", err)
@@ -220,7 +223,7 @@ func TestTodoUsecaseListUpdateDelete(t *testing.T) {
 		mockRepo{delete: func(context.Context, domain.TodoID) error { return nil }},
 		mockCache{delete: func(context.Context, domain.TodoID) error { return errors.New("cache delete") }},
 		time.Second,
-		WithCacheErrorReporter(reportDelete),
+		reportDelete,
 	)
 	if err := uDeleteCacheErr.Delete(context.Background(), "cache"); err != nil {
 		t.Fatalf("expected delete cache error to be ignored, got %v", err)
@@ -231,31 +234,31 @@ func TestTodoUsecaseListUpdateDelete(t *testing.T) {
 
 	uListErr := NewTodo(mockRepo{list: func(context.Context, int, int) ([]*domain.Todo, error) {
 		return nil, errors.New("db")
-	}}, nil, time.Second)
+	}}, nil, time.Second, nil)
 	_, err = uListErr.List(context.Background(), 10, 0)
 	assertAppErrorCode(t, err, apperror.ErrDB)
 
 	uUpdateNotFound := NewTodo(mockRepo{update: func(context.Context, *domain.Todo) error {
 		return domain.ErrTodoNotFound
-	}}, nil, time.Second)
+	}}, nil, time.Second, nil)
 	_, err = uUpdateNotFound.Update(context.Background(), &domain.Todo{ID: "x"})
 	assertAppErrorCode(t, err, apperror.ErrNotFound)
 
 	uUpdateErr := NewTodo(mockRepo{update: func(context.Context, *domain.Todo) error {
 		return errors.New("db")
-	}}, nil, time.Second)
+	}}, nil, time.Second, nil)
 	_, err = uUpdateErr.Update(context.Background(), &domain.Todo{ID: "x"})
 	assertAppErrorCode(t, err, apperror.ErrDB)
 
 	uDeleteNotFound := NewTodo(mockRepo{delete: func(context.Context, domain.TodoID) error {
 		return domain.ErrTodoNotFound
-	}}, nil, time.Second)
+	}}, nil, time.Second, nil)
 	err = uDeleteNotFound.Delete(context.Background(), "x")
 	assertAppErrorCode(t, err, apperror.ErrNotFound)
 
 	uDeleteErr := NewTodo(mockRepo{delete: func(context.Context, domain.TodoID) error {
 		return errors.New("db")
-	}}, nil, time.Second)
+	}}, nil, time.Second, nil)
 	err = uDeleteErr.Delete(context.Background(), "x")
 	assertAppErrorCode(t, err, apperror.ErrDB)
 }

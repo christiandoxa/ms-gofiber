@@ -233,7 +233,7 @@ Body example:
 
 ## Response & Error Model
 
-All responses use a consistent envelope (see `pkg/respond/respond.go`):
+All responses use a consistent envelope (see `api/respond/respond.go`):
 
 ```json
 {
@@ -261,7 +261,7 @@ All responses use a consistent envelope (see `pkg/respond/respond.go`):
 ## Validation
 
 * **Field-level** rules in `internal/validator/rule/plainbase` (e.g. `alphanum_with_space`, `authorization_scope`, etc).
-* **App-specific struct-level** rules in `internal/app/adapter/validation`.
+* **App-specific struct-level** rules in `api/validation`.
 
 Example DTO (validated in handlers):
 
@@ -377,8 +377,7 @@ ELASTIC_APM_RECORDING=true
   `internal/app/application/usecase`, then implement adapters in `internal/app/adapter`.
 * **New reusable field validators**: implement in `internal/validator/rule/plainbase` and register in
   `internal/validator/rule/register.go`.
-* **New request-specific struct validators**: implement in `internal/app/adapter/validation` so DTO rules stay in the
-  HTTP adapter boundary.
+* **New request-specific struct validators**: implement in `api/validation` so DTO rules stay in the API boundary.
 * **New outbound client**: add helper in `pkg/httpx` or a domain-specific gateway; always pass `c.UserContext()` and log
   with `welog.LogFiberClient(...)`.
 

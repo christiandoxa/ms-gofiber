@@ -12,27 +12,13 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var (
-	openSQLiteDB = func(driverName, dataSourceName string) (*sql.DB, error) {
-		return sql.Open(driverName, dataSourceName)
-	}
-	pingSQLiteDB = func(ctx context.Context, db *sql.DB) error {
-		return db.PingContext(ctx)
-	}
-	ensureSQLiteSchema = ensureSchema
-)
-
-type SQLiteOptions struct {
-	Path string
-}
-
-func NewSQLiteDB(ctx context.Context, opts SQLiteOptions) (*sql.DB, error) {
-	if err := ensureParentDir(opts.Path); err != nil {
+func NewSQLiteDB(ctx context.Context, path string) (*sql.DB, error) {
+	if err := ensureParentDir(path); err != nil {
 		return nil, err
 	}
 
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", opts.Path)
-	db, err := openSQLiteDB("sqlite", dsn)
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", path)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -43,11 +29,11 @@ func NewSQLiteDB(ctx context.Context, opts SQLiteOptions) (*sql.DB, error) {
 
 	pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if err := pingSQLiteDB(pctx, db); err != nil {
+	if err := db.PingContext(pctx); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
 
-	if err := ensureSQLiteSchema(ctx, db); err != nil {
+	if err := ensureSchema(ctx, db); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
 

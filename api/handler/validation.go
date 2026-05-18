@@ -1,12 +1,12 @@
-package controller
+package handler
 
 import (
 	"github.com/gofiber/fiber/v2"
 	"go.elastic.co/apm/v2"
 
-	"ms-gofiber/internal/app/adapter/dto"
+	"ms-gofiber/api/dto"
+	"ms-gofiber/api/respond"
 	"ms-gofiber/pkg/apperror"
-	"ms-gofiber/pkg/respond"
 )
 
 type Validation struct {

@@ -6,7 +6,6 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
-	"github.com/sirupsen/logrus"
 
 	"ms-gofiber/pkg/apperror"
 )
@@ -21,11 +20,7 @@ type RequestHeader struct {
 	XExternalID string `reqHeader:"X-EXTERNAL-ID" json:"X-EXTERNAL-ID" validate:"required,numeric,max=36"`
 }
 
-var reqHeaderParser = func(c *fiber.Ctx, out *RequestHeader) error {
-	return c.ReqHeaderParser(out)
-}
-
-func DefaultSkippedPaths() map[string]struct{} {
+func skippedPaths() map[string]struct{} {
 	return map[string]struct{}{
 		"/v1/health":           {},
 		"/v1/internal/echo":    {},
@@ -33,18 +28,15 @@ func DefaultSkippedPaths() map[string]struct{} {
 	}
 }
 
-func HeaderGuard(validate RequestValidator, skippedPaths map[string]struct{}) fiber.Handler {
-	if skippedPaths == nil {
-		skippedPaths = DefaultSkippedPaths()
-	}
-
+func HeaderGuard(validate RequestValidator) fiber.Handler {
+	skipped := skippedPaths()
 	return func(c *fiber.Ctx) error {
-		if shouldSkipPath(c.Path(), skippedPaths) {
+		if shouldSkipPath(c.Path(), skipped) {
 			return c.Next()
 		}
 
 		var header RequestHeader
-		if err := reqHeaderParser(c, &header); err != nil {
+		if err := c.ReqHeaderParser(&header); err != nil {
 			logMiddlewareError(c, err)
 			return apperror.New(apperror.ErrBadRequest, "invalid request headers")
 		}
@@ -58,16 +50,14 @@ func HeaderGuard(validate RequestValidator, skippedPaths map[string]struct{}) fi
 	}
 }
 
-func ExternalIDGuard(redisClient *redis.Client, ttl time.Duration, skippedPaths map[string]struct{}) fiber.Handler {
-	if skippedPaths == nil {
-		skippedPaths = DefaultSkippedPaths()
-	}
+func ExternalIDGuard(redisClient *redis.Client, ttl time.Duration) fiber.Handler {
 	if ttl <= 0 {
 		ttl = 60 * time.Second
 	}
 
+	skipped := skippedPaths()
 	return func(c *fiber.Ctx) error {
-		if shouldSkipPath(c.Path(), skippedPaths) {
+		if shouldSkipPath(c.Path(), skipped) {
 			return c.Next()
 		}
 
@@ -99,9 +89,5 @@ func shouldSkipPath(path string, skippedPaths map[string]struct{}) bool {
 }
 
 func logMiddlewareError(c *fiber.Ctx, err error) {
-	if v := c.Locals("logger"); v != nil {
-		if logger, ok := v.(*logrus.Entry); ok && logger != nil {
-			logger.WithError(err).Error("middleware error")
-		}
-	}
+	logFiberError(c, err, "middleware error")
 }

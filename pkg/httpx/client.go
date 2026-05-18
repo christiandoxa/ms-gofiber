@@ -7,16 +7,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"go.elastic.co/apm/module/apmhttp/v2"
+
+	"ms-gofiber/pkg/logging"
 )
 
 const defaultTimeout = 10 * time.Second
-
-var (
-	newHTTPRequest = http.NewRequest
-	wrapHTTPClient = apmhttp.WrapClient
-)
 
 type Request struct {
 	Method      string
@@ -59,7 +55,7 @@ func Do(ctx context.Context, req Request, logger Logger) (*Response, error) {
 		timeout = defaultTimeout
 	}
 
-	httpReq, err := newHTTPRequest(req.Method, req.URL, bytes.NewReader(req.Body))
+	httpReq, err := http.NewRequest(req.Method, req.URL, bytes.NewReader(req.Body))
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +77,7 @@ func Do(ctx context.Context, req Request, logger Logger) (*Response, error) {
 	}
 
 	start := time.Now()
-	httpClient := wrapHTTPClient(&http.Client{Timeout: timeout})
+	httpClient := apmhttp.WrapClient(&http.Client{Timeout: timeout})
 	httpRes, err := httpClient.Do(httpReq)
 
 	if err != nil {
@@ -137,6 +133,6 @@ func logRequest(ctx context.Context, logger Logger, req RequestLog, res Response
 
 func closeBody(ctx context.Context, body io.Closer) {
 	if err := body.Close(); err != nil {
-		logrus.WithContext(ctx).WithError(err).Error("failed to close response body")
+		logging.Error(ctx, err, "failed to close response body", nil)
 	}
 }

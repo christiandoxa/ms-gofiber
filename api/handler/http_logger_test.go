@@ -1,4 +1,4 @@
-package controller
+package handler
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/christiandoxa/welog"
 	"github.com/christiandoxa/welog/pkg/model"
 	"github.com/gofiber/fiber/v2"
 
@@ -32,7 +33,7 @@ func TestFiberHTTPLogger(t *testing.T) {
 	fiberHTTPLogger{}.Log(context.Background(), req, res)
 
 	called := false
-	patches := gomonkey.ApplyGlobalVar(&logFiberClient, func(_ *fiber.Ctx, gotReq model.TargetRequest, gotRes model.TargetResponse) {
+	patches := gomonkey.ApplyFunc(welog.LogFiberClient, func(_ *fiber.Ctx, gotReq model.TargetRequest, gotRes model.TargetResponse) {
 		called = true
 		if gotReq.URL != req.URL || gotReq.Method != req.Method || gotReq.ContentType != req.ContentType {
 			t.Fatalf("unexpected request log: %+v", gotReq)
@@ -56,7 +57,7 @@ func TestFiberHTTPLogger(t *testing.T) {
 		t.Fatalf("close response body: %v", err)
 	}
 	if !called {
-		t.Fatalf("expected logFiberClient call")
+		t.Fatalf("expected LogFiberClient call")
 	}
 }
 

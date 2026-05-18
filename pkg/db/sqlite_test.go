@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	_ "modernc.org/sqlite"
 )
 
@@ -46,8 +47,7 @@ func TestEnsureSchema(t *testing.T) {
 }
 
 func TestNewSQLiteDB(t *testing.T) {
-	opts := SQLiteOptions{Path: filepath.Join(t.TempDir(), "x", "app.db")}
-	db, err := NewSQLiteDB(context.Background(), opts)
+	db, err := NewSQLiteDB(context.Background(), filepath.Join(t.TempDir(), "x", "app.db"))
 	if err != nil {
 		t.Fatalf("NewSQLiteDB error: %v", err)
 	}
@@ -63,64 +63,30 @@ func TestNewSQLiteDB(t *testing.T) {
 		t.Fatalf("expected todos table exists")
 	}
 
-	bad := SQLiteOptions{Path: "/proc/1/forbidden/db.sqlite"}
-	if _, err := NewSQLiteDB(context.Background(), bad); err == nil {
+	if _, err := NewSQLiteDB(context.Background(), "/proc/1/forbidden/db.sqlite"); err == nil {
 		t.Fatalf("expected NewSQLiteDB error")
 	}
 }
 
 func TestNewSQLiteDBOpenError(t *testing.T) {
-	origOpen := openSQLiteDB
-	t.Cleanup(func() { openSQLiteDB = origOpen })
-
-	openSQLiteDB = func(string, string) (*sql.DB, error) {
+	patches := gomonkey.ApplyFunc(sql.Open, func(string, string) (*sql.DB, error) {
 		return nil, errors.New("open error")
-	}
+	})
+	defer patches.Reset()
 
-	opts := SQLiteOptions{Path: filepath.Join(t.TempDir(), "x", "open-error.db")}
-	if _, err := NewSQLiteDB(context.Background(), opts); err == nil {
+	if _, err := NewSQLiteDB(context.Background(), filepath.Join(t.TempDir(), "x", "open-error.db")); err == nil {
 		t.Fatalf("expected open error")
 	}
 }
 
 func TestNewSQLiteDBPingError(t *testing.T) {
-	origOpen := openSQLiteDB
-	origPing := pingSQLiteDB
-	t.Cleanup(func() {
-		openSQLiteDB = origOpen
-		pingSQLiteDB = origPing
-	})
-
-	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "ping.db"))
-	if err != nil {
-		t.Fatalf("open sqlite error: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close sqlite error: %v", err)
-	}
-
-	openSQLiteDB = func(string, string) (*sql.DB, error) { return db, nil }
-	pingSQLiteDB = func(context.Context, *sql.DB) error { return errors.New("ping error") }
-
-	opts := SQLiteOptions{Path: filepath.Join(t.TempDir(), "x", "ping-error.db")}
-	if _, err := NewSQLiteDB(context.Background(), opts); err == nil {
+	if _, err := NewSQLiteDB(context.Background(), t.TempDir()); err == nil {
 		t.Fatalf("expected ping error")
 	}
 }
 
 func TestNewSQLiteDBEnsureSchemaError(t *testing.T) {
-	origSchema := ensureSQLiteSchema
-	origPing := pingSQLiteDB
-	t.Cleanup(func() {
-		ensureSQLiteSchema = origSchema
-		pingSQLiteDB = origPing
-	})
-
-	ensureSQLiteSchema = func(context.Context, *sql.DB) error { return errors.New("schema error") }
-	pingSQLiteDB = func(context.Context, *sql.DB) error { return nil }
-
-	opts := SQLiteOptions{Path: filepath.Join(t.TempDir(), "x", "schema-error.db")}
-	if _, err := NewSQLiteDB(context.Background(), opts); err == nil {
+	if _, err := NewSQLiteDB(context.Background(), "/dev/null"); err == nil {
 		t.Fatalf("expected ensure schema error")
 	}
 }

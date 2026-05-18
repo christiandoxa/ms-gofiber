@@ -9,62 +9,28 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/redis/go-redis/v9"
-	"github.com/sirupsen/logrus"
 
 	"github.com/christiandoxa/welog"
 	"go.elastic.co/apm/module/apmfiber/v2"
 
-	"ms-gofiber/internal/app/adapter/controller"
+	"ms-gofiber/api/handler"
+	"ms-gofiber/api/middleware"
+	apirouter "ms-gofiber/api/router"
+	apivalidation "ms-gofiber/api/validation"
 	redisadapter "ms-gofiber/internal/app/adapter/repository/redis"
 	sqliteadapter "ms-gofiber/internal/app/adapter/repository/sqlite"
-	appvalidation "ms-gofiber/internal/app/adapter/validation"
 	todousecase "ms-gofiber/internal/app/application/usecase"
 	"ms-gofiber/internal/app/domain"
 	"ms-gofiber/internal/config"
-	"ms-gofiber/internal/middleware"
-	"ms-gofiber/internal/validator"
 	"ms-gofiber/pkg/cache"
 	"ms-gofiber/pkg/db"
+	"ms-gofiber/pkg/logging"
 )
 
-type CloseFunc func() error
-
-var newValidator = func() (controller.RequestValidator, error) {
-	return validator.NewStructValidator(appvalidation.RegisterStructRules)
-}
-
-func Build(ctx context.Context, cfg *config.Config) (*fiber.App, CloseFunc, error) {
-	if cfg == nil {
-		return nil, nil, errors.New("config is nil")
-	}
-
-	infra, err := buildInfrastructure(ctx, cfg)
+func Build(ctx context.Context, cfg *config.Config) (*fiber.App, func() error, error) {
+	sqliteDB, err := db.NewSQLiteDB(ctx, cfg.SQLitePath)
 	if err != nil {
 		return nil, nil, err
-	}
-
-	validate, err := newValidator()
-	if err != nil {
-		closeErr := infra.Close()
-		return nil, nil, errors.Join(err, closeErr)
-	}
-
-	fiberApp := newFiberApp(cfg)
-	registerMiddleware(fiberApp, validate, infra.redisClient, cfg.RedisDefaultTTLDuration())
-	registerRoutes(fiberApp, validate, infra, cfg.RedisDefaultTTLDuration())
-
-	return fiberApp, infra.Close, nil
-}
-
-type infrastructure struct {
-	sqliteDB    *sql.DB
-	redisClient *redis.Client
-}
-
-func buildInfrastructure(ctx context.Context, cfg *config.Config) (*infrastructure, error) {
-	sqliteDB, err := db.NewSQLiteDB(ctx, db.SQLiteOptions{Path: cfg.SQLitePath})
-	if err != nil {
-		return nil, err
 	}
 
 	redisClient, err := cache.NewRedis(ctx, cache.RedisOptions{
@@ -74,17 +40,24 @@ func buildInfrastructure(ctx context.Context, cfg *config.Config) (*infrastructu
 		PingTimeout: cfg.RedisPingTimeout(),
 	})
 	if err != nil {
-		return nil, errors.Join(err, sqliteDB.Close())
+		return nil, nil, errors.Join(err, sqliteDB.Close())
 	}
 
-	return &infrastructure{
-		sqliteDB:    sqliteDB,
-		redisClient: redisClient,
-	}, nil
-}
+	closeApp := func() error {
+		return errors.Join(sqliteDB.Close(), redisClient.Close())
+	}
 
-func (i *infrastructure) Close() error {
-	return errors.Join(i.sqliteDB.Close(), i.redisClient.Close())
+	validate, err := apivalidation.NewStructValidator()
+	if err != nil {
+		closeErr := closeApp()
+		return nil, nil, errors.Join(err, closeErr)
+	}
+
+	fiberApp := newFiberApp(cfg)
+	registerMiddleware(fiberApp, validate, redisClient, cfg.RedisDefaultTTLDuration())
+	registerRoutes(fiberApp, validate, sqliteDB, redisClient, cfg.RedisDefaultTTLDuration())
+
+	return fiberApp, closeApp, nil
 }
 
 func newFiberApp(cfg *config.Config) *fiber.App {
@@ -101,42 +74,38 @@ func registerMiddleware(
 	redisClient *redis.Client,
 	externalIDTTL time.Duration,
 ) {
-	skippedPaths := middleware.DefaultSkippedPaths()
-
 	app.Use(cors.New())
 	app.Use(middleware.RequestID())
 	app.Use(middleware.SecurityHeaders())
 	app.Use(apmfiber.Middleware())
 	app.Use(welog.NewFiber(fiber.Config{}))
-	app.Use(middleware.HeaderGuard(validate, skippedPaths))
-	app.Use(middleware.ExternalIDGuard(redisClient, externalIDTTL, skippedPaths))
+	app.Use(middleware.HeaderGuard(validate))
+	app.Use(middleware.ExternalIDGuard(redisClient, externalIDTTL))
 }
 
 func registerRoutes(
 	app *fiber.App,
-	validate controller.RequestValidator,
-	infra *infrastructure,
+	validate handler.RequestValidator,
+	sqliteDB *sql.DB,
+	redisClient *redis.Client,
 	cacheTTL time.Duration,
 ) {
-	todoRepo := sqliteadapter.NewTodo(infra.sqliteDB)
-	todoCache := redisadapter.NewTodo(infra.redisClient)
 	todoUC := todousecase.NewTodo(
-		todoRepo,
-		todoCache,
+		sqliteadapter.NewTodo(sqliteDB),
+		redisadapter.NewTodo(redisClient),
 		cacheTTL,
-		todousecase.WithCacheErrorReporter(reportTodoCacheError),
+		reportTodoCacheError,
 	)
-	todoController := controller.NewTodo(todoUC, validate)
-	internalController := controller.NewInternal()
-	validationController := controller.NewValidation(validate)
+	todoHandler := handler.NewTodo(todoUC, validate)
+	internalHandler := &handler.Internal{}
+	validationHandler := handler.NewValidation(validate)
 
-	router := controller.NewRouter(app, todoController, internalController, validationController)
-	router.RegisterRoutes()
+	apirouter.Register(app, todoHandler, internalHandler, validationHandler)
 }
 
 func reportTodoCacheError(ctx context.Context, operation string, id domain.TodoID, err error) {
-	logrus.WithContext(ctx).WithError(err).WithFields(logrus.Fields{
+	logging.Warn(ctx, err, "todo cache operation failed", map[string]any{
 		"operation": operation,
 		"todo_id":   id,
-	}).Warn("todo cache operation failed")
+	})
 }

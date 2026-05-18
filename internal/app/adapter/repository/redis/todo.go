@@ -12,8 +12,6 @@ import (
 	"ms-gofiber/internal/app/domain"
 )
 
-var marshalTodo = json.Marshal
-
 type Todo struct {
 	client *redis.Client
 }
@@ -39,7 +37,7 @@ func (c *Todo) GetTodo(ctx context.Context, id domain.TodoID) (*domain.Todo, boo
 }
 
 func (c *Todo) SetTodo(ctx context.Context, todo *domain.Todo, ttl time.Duration) error {
-	value, err := marshalTodo(todo)
+	value, err := json.Marshal(todo)
 	if err != nil {
 		return err
 	}

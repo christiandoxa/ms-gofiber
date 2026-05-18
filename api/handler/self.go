@@ -1,4 +1,4 @@
-package controller
+package handler
 
 import (
 	"encoding/json"
@@ -9,16 +9,12 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"go.elastic.co/apm/v2"
 
+	"ms-gofiber/api/respond"
 	"ms-gofiber/pkg/apperror"
 	"ms-gofiber/pkg/httpx"
-	"ms-gofiber/pkg/respond"
 )
 
 type Internal struct{}
-
-var httpDo = httpx.Do
-
-func NewInternal() *Internal { return &Internal{} }
 
 // Echo GET /v1/internal/echo
 func (h *Internal) Echo(c *fiber.Ctx) error {
@@ -40,7 +36,7 @@ func (h *Internal) SelfCall(c *fiber.Ctx) error {
 	defer span.End()
 
 	target := fmt.Sprintf("%s/v1/internal/echo?msg=%s", c.BaseURL(), url.QueryEscape("hello-from-client"))
-	res, err := httpDo(ctx, httpx.Request{
+	res, err := httpx.Do(ctx, httpx.Request{
 		Method:      "GET",
 		URL:         target,
 		ContentType: "application/json",

@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -64,7 +65,7 @@ func TestTodoCacheErrorBranches(t *testing.T) {
 	}
 
 	expected := errors.New("marshal error")
-	patches := gomonkey.ApplyGlobalVar(&marshalTodo, func(any) ([]byte, error) {
+	patches := gomonkey.ApplyFunc(json.Marshal, func(any) ([]byte, error) {
 		return nil, expected
 	})
 	defer patches.Reset()

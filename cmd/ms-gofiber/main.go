@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,87 +9,69 @@ import (
 
 	"ms-gofiber/internal/app"
 	"ms-gofiber/internal/config"
+	"ms-gofiber/internal/startuperror"
+	"ms-gofiber/pkg/logging"
 )
-
-type server interface {
-	Listen(addr string) error
-	ShutdownWithContext(ctx context.Context) error
-}
-
-type closeFunc = app.CloseFunc
-
-var (
-	loadConfig = config.Load
-	buildApp   = func(ctx context.Context, cfg *config.Config) (server, closeFunc, error) {
-		return app.Build(ctx, cfg)
-	}
-	notifySignal = signal.Notify
-	withTimeout  = context.WithTimeout
-	runMain      = runBackground
-	fatalf       = log.Fatalf
-)
-
-func runBackground() error {
-	return run(context.Background())
-}
 
 func main() {
-	if err := runMain(); err != nil {
-		fatalf("%v", err)
+	if err := run(context.Background()); err != nil {
+		logging.Fatalf("%v", err)
 	}
 }
 
 func run(ctx context.Context) error {
-	cfg, err := loadConfig()
+	cfg, err := config.Load()
 	if err != nil {
-		return fmt.Errorf("config load error: %w", err)
+		return startuperror.Wrap(startuperror.ConfigLoad, err)
 	}
 
-	fbApp, closer, err := buildApp(ctx, cfg)
+	fbApp, closeApp, err := app.Build(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("app build error: %w", err)
+		return startuperror.Wrap(startuperror.AppBuild, err)
 	}
+	appClosed := false
 	defer func() {
-		if closer != nil {
-			if closeErr := closer(); closeErr != nil {
-				log.Printf("app close error: %v", closeErr)
-			}
+		if appClosed {
+			return
+		}
+		if closeErr := closeApp(); closeErr != nil {
+			logging.Error(ctx, startuperror.Wrap(startuperror.AppClose, closeErr), "app close failed", nil)
 		}
 	}()
 
 	listenErr := make(chan error, 1)
 	go func() {
-		log.Printf("server starting at %s", cfg.ListenAddr())
+		logging.Info(ctx, "server starting", map[string]any{"addr": cfg.ListenAddr()})
 		listenErr <- fbApp.Listen(cfg.ListenAddr())
 	}()
 
 	// graceful shutdown
 	quit := make(chan os.Signal, 1)
-	notifySignal(quit, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
 	case err := <-listenErr:
 		if err != nil {
-			return fmt.Errorf("fiber listen error: %w", err)
+			return startuperror.Wrap(startuperror.FiberListen, err)
 		}
 	case <-quit:
 	case <-ctx.Done():
 	}
 
-	log.Println("shutdown signal received")
-	shutdownCtx, cancel := withTimeout(context.Background(), 10*time.Second)
+	logging.Info(ctx, "shutdown signal received", nil)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := fbApp.ShutdownWithContext(shutdownCtx); err != nil {
-		return fmt.Errorf("fiber shutdown error: %w", err)
+		return startuperror.Wrap(startuperror.FiberShutdown, err)
 	}
 
-	closeErr := closer()
-	closer = nil
+	closeErr := closeApp()
+	appClosed = true
 	if closeErr != nil {
-		return fmt.Errorf("app close error: %w", closeErr)
+		return startuperror.Wrap(startuperror.AppClose, closeErr)
 	}
 
-	log.Println("server gracefully stopped")
+	logging.Info(ctx, "server gracefully stopped", nil)
 	return nil
 }
