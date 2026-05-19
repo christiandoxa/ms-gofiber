@@ -20,6 +20,9 @@ func mustRegister(t *testing.T) *validator.Validate {
 	if err := validate.RegisterValidation(rulekey.TrimRule, ValidateTrimRule); err != nil {
 		t.Fatalf("register trim rule: %v", err)
 	}
+	if err := validate.RegisterValidation(rulekey.TimeRule, ValidateTimeRule); err != nil {
+		t.Fatalf("register time rule: %v", err)
+	}
 	return validate
 }
 
@@ -80,6 +83,26 @@ func TestValidateTrimRule(t *testing.T) {
 
 	type badRequest struct {
 		Value int `validate:"trimRule"`
+	}
+	if err := validate.Struct(badRequest{Value: 1}); err == nil {
+		t.Fatalf("expected invalid type")
+	}
+}
+
+func TestValidateTimeRule(t *testing.T) {
+	validate := mustRegister(t)
+	type request struct {
+		Value string `validate:"timeRule"`
+	}
+	if err := validate.Struct(request{Value: "2026-05-19T10:30:00Z"}); err != nil {
+		t.Fatalf("expected valid time: %v", err)
+	}
+	if err := validate.Struct(request{Value: "2026-99-99T10:30:00Z"}); err == nil {
+		t.Fatalf("expected invalid time")
+	}
+
+	type badRequest struct {
+		Value int `validate:"timeRule"`
 	}
 	if err := validate.Struct(badRequest{Value: 1}); err == nil {
 		t.Fatalf("expected invalid type")

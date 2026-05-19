@@ -11,6 +11,7 @@ import (
 var customRules = map[string]validator.Func{
 	rulekey.AlphanumWithSpaceRule: plainbase.ValidateAlphanumWithSpaceRule,
 	rulekey.NotBlankRule:          plainbase.ValidateNotBlankRule,
+	rulekey.TimeRule:              plainbase.ValidateTimeRule,
 	rulekey.TrimRule:              plainbase.ValidateTrimRule,
 }
 

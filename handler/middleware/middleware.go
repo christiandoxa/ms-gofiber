@@ -10,7 +10,8 @@ import (
 
 var (
 	allowedSkippedPath = map[string]bool{
-		"/v1/health": true,
+		"/v1/flush/cache": true,
+		"/v1/health":      true,
 	}
 )
 
@@ -27,6 +28,18 @@ func CheckHeader(service *model.Service) fiber.Handler {
 			return err
 		}
 		c.Locals(generalkey.RequestHeader, header)
+		return c.Next()
+	}
+}
+
+func ExternalID(service *model.Service) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if allowedSkippedPath[c.Path()] {
+			return c.Next()
+		}
+		if err := service.ExternalIDService.StoreExternalID(c.UserContext(), c.Get(generalkey.ExternalID)); err != nil {
+			return err
+		}
 		return c.Next()
 	}
 }

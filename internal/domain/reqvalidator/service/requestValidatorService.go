@@ -34,8 +34,7 @@ func New(validate *validator.Validate) IRequestValidator {
 
 func (r *RequestValidator) ValidateStruct(request any) error {
 	if err := r.validate.Struct(request); err != nil {
-		var validationErrors validator.ValidationErrors
-		if errors.As(err, &validationErrors) {
+		if validationErrors, ok := errors.AsType[validator.ValidationErrors](err); ok {
 			fields := map[string]string{}
 			for _, fieldError := range validationErrors {
 				fields[fieldError.Field()] = fieldError.Tag()

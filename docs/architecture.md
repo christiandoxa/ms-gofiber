@@ -29,10 +29,13 @@ The current service uses:
 * Generic in-memory TTL cache under `pkg/infrastructure/cache`.
 * Generic outbound HTTP client under `pkg/client`.
 * External echo adapter under `external/domain/echo`.
+* Cache flush repository/service under `internal/domain/cache`.
+* External ID duplicate guard under `internal/domain/externalid`.
+* Neutral response-code remapping under `internal/domain/remapping`.
 * Todo repository and service/usecase under `internal/domain/todo`.
 * Generic request validation through `internal/domain/reqvalidator/service`.
 * Plain-base and struct-base validator rules under `pkg/rule`.
-* Generic response envelope through `pkg/response`.
+* Generic response envelope and neutral response-code model through `pkg/response` and `pkg/responsecode`.
 
 ## Pattern Policy
 

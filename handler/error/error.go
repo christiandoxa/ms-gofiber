@@ -10,17 +10,20 @@ import (
 
 	"ms-gofiber/pkg/apperror"
 	"ms-gofiber/pkg/response"
+	"ms-gofiber/pkg/responsecode/model"
 )
 
 func ErrorHandler() fiber.ErrorHandler {
 	return func(c *fiber.Ctx, err error) error {
-		appErr := &apperror.Error{}
-		if errors.As(err, &appErr) {
+		if responseCode, ok := errors.AsType[*rcmodel.ResponseCode](err); ok {
+			return c.Status(responseCode.StatusCode).JSON(responseCode)
+		}
+
+		if appErr, ok := errors.AsType[*apperror.Error](err); ok {
 			return c.Status(appErr.Status).JSON(response.Error(appErr.Message, appErr.Fields))
 		}
 
-		fiberErr := &fiber.Error{}
-		if errors.As(err, &fiberErr) {
+		if fiberErr, ok := errors.AsType[*fiber.Error](err); ok {
 			return c.Status(fiberErr.Code).JSON(response.Error(fiberErr.Message, nil))
 		}
 

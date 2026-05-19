@@ -14,11 +14,18 @@ import (
 	echoservice "ms-gofiber/external/domain/echo/service"
 	errorhandler "ms-gofiber/handler/error"
 	middlewarehandler "ms-gofiber/handler/middleware"
+	cacherepository "ms-gofiber/internal/domain/cache/repository"
+	cacheservice "ms-gofiber/internal/domain/cache/service"
+	externalidrepository "ms-gofiber/internal/domain/externalid/repository"
+	externalidservice "ms-gofiber/internal/domain/externalid/service"
+	remappingrepository "ms-gofiber/internal/domain/remapping/repository"
+	remappingservice "ms-gofiber/internal/domain/remapping/service"
 	requestvalidatorservice "ms-gofiber/internal/domain/reqvalidator/service"
 	todorepository "ms-gofiber/internal/domain/todo/repository"
 	todoservice "ms-gofiber/internal/domain/todo/service"
 	"ms-gofiber/pkg/config"
 	"ms-gofiber/pkg/constant/envkey"
+	"ms-gofiber/pkg/infrastructure/cache"
 	"ms-gofiber/pkg/infrastructure/database"
 	"ms-gofiber/pkg/rule"
 	"ms-gofiber/router"
@@ -57,23 +64,35 @@ func init() {
 	// init database
 	db := database.Connect(cfg.DatabasePath)
 
+	// init cache
+	cacheClient := cache.Connect()
+
 	// init rule
 	validate = initValidator()
 
 	// init repository
+	cacheRepository := cacherepository.New(cacheClient)
 	echoRepository := echorepository.New()
+	externalIDRepository := externalidrepository.New(cacheClient)
+	remappingRepository := remappingrepository.New()
 	todoRepository := todorepository.New(db)
 
 	// init service
+	cacheService := cacheservice.New(cacheRepository)
 	echoService := echoservice.New(echoRepository)
+	externalIDService := externalidservice.New(externalIDRepository)
+	remappingService := remappingservice.New(remappingRepository)
 	requestValidatorService := requestvalidatorservice.New(validate)
 	todoService := todoservice.New(todoRepository)
 
 	// init service model
 	service = &model.Service{
-		EchoService:      echoService,
-		RequestValidator: requestValidatorService,
-		TodoService:      todoService,
+		CacheService:      cacheService,
+		EchoService:       echoService,
+		ExternalIDService: externalIDService,
+		RemappingService:  remappingService,
+		RequestValidator:  requestValidatorService,
+		TodoService:       todoService,
 	}
 
 	// set fiber config
@@ -113,6 +132,9 @@ func NewServer() *fiber.App {
 
 	// check header
 	app.Use(middlewarehandler.CheckHeader(service))
+
+	// check external id
+	app.Use(middlewarehandler.ExternalID(service))
 
 	// register routes
 	router.Register(app, service)

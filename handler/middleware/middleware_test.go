@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http/httptest"
 	"testing"
@@ -19,6 +20,14 @@ type mockValidator struct {
 }
 
 func (m mockValidator) ValidateStruct(any) error {
+	return m.err
+}
+
+type mockExternalIDService struct {
+	err error
+}
+
+func (m mockExternalIDService) StoreExternalID(context.Context, string) error {
 	return m.err
 }
 
@@ -69,18 +78,58 @@ func TestCheckHeader(t *testing.T) {
 	app.Use(CheckHeader(&model.Service{RequestValidator: mockValidator{}}))
 	app.Get("/v1/todos", func(c *fiber.Ctx) error {
 		header, ok := c.Locals(generalkey.RequestHeader).(model.Header)
-		if !ok || header.ClientID != "client" {
+		if !ok || header.ClientID != "client" || header.ExternalID != "external1" {
 			t.Fatalf("unexpected header: %+v %v", header, ok)
 		}
 		return c.SendStatus(fiber.StatusOK)
 	})
 	req = httptest.NewRequest(fiber.MethodGet, "/v1/todos", nil)
 	req.Header.Set("X-CLIENT-ID", "client")
+	req.Header.Set("X-EXTERNAL-ID", "external1")
 	res, err = app.Test(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
 	if res.StatusCode != fiber.StatusOK {
 		t.Fatalf("expected 200 got %d", res.StatusCode)
+	}
+}
+
+func TestExternalID(t *testing.T) {
+	app := fiber.New(fiber.Config{ErrorHandler: errorhandler.ErrorHandler()})
+	app.Use(ExternalID(&model.Service{ExternalIDService: mockExternalIDService{}}))
+	app.Get("/v1/flush/cache", func(c *fiber.Ctx) error { return c.SendStatus(fiber.StatusOK) })
+	res, err := app.Test(httptest.NewRequest(fiber.MethodGet, "/v1/flush/cache", nil))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if res.StatusCode != fiber.StatusOK {
+		t.Fatalf("expected 200 got %d", res.StatusCode)
+	}
+
+	app = fiber.New(fiber.Config{ErrorHandler: errorhandler.ErrorHandler()})
+	app.Use(ExternalID(&model.Service{ExternalIDService: mockExternalIDService{}}))
+	app.Get("/v1/todos", func(c *fiber.Ctx) error { return c.SendStatus(fiber.StatusOK) })
+	req := httptest.NewRequest(fiber.MethodGet, "/v1/todos", nil)
+	req.Header.Set("X-EXTERNAL-ID", "external1")
+	res, err = app.Test(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if res.StatusCode != fiber.StatusOK {
+		t.Fatalf("expected 200 got %d", res.StatusCode)
+	}
+
+	app = fiber.New(fiber.Config{ErrorHandler: errorhandler.ErrorHandler()})
+	app.Use(ExternalID(&model.Service{ExternalIDService: mockExternalIDService{err: errors.New("duplicate")}}))
+	app.Get("/v1/todos", func(c *fiber.Ctx) error { return c.SendStatus(fiber.StatusOK) })
+	req = httptest.NewRequest(fiber.MethodGet, "/v1/todos", nil)
+	req.Header.Set("X-EXTERNAL-ID", "external1")
+	res, err = app.Test(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if res.StatusCode != fiber.StatusInternalServerError {
+		t.Fatalf("expected 500 got %d", res.StatusCode)
 	}
 }

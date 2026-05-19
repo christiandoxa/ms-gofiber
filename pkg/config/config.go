@@ -18,7 +18,7 @@ type Config struct {
 }
 
 func Load() *Config {
-	godotenv.Load() //nolint:errcheck
+	_ = godotenv.Load()
 	cfg := &Config{
 		AppPort:      tool.StringFromEnv(envkey.AppPort, "8080"),
 		DatabasePath: tool.StringFromEnv(envkey.DatabasePath, ":memory:"),
@@ -31,6 +31,6 @@ func Load() *Config {
 
 func setDefaultEnv(key string, value string) {
 	if os.Getenv(key) == "" {
-		os.Setenv(key, value) //nolint:errcheck
+		_ = os.Setenv(key, value)
 	}
 }

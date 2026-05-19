@@ -1,12 +1,13 @@
 package main
 
 import (
-	"github.com/christiandoxa/welog/pkg/infrastructure/logger"
 	"ms-gofiber/pkg/constant/envkey"
 	"ms-gofiber/pkg/server"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/christiandoxa/welog/pkg/infrastructure/logger"
 )
 
 func main() {
@@ -20,7 +21,9 @@ func main() {
 	// graceful shutdown
 	go func() {
 		<-c
-		app.Shutdown() //nolint:errcheck
+		if err := app.Shutdown(); err != nil {
+			logger.Logger().Error(err)
+		}
 	}()
 
 	// start the server

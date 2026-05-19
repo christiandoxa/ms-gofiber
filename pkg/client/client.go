@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/christiandoxa/welog/pkg/infrastructure/logger"
 )
 
 const defaultTimeout = 5 * time.Second
@@ -49,7 +51,12 @@ func Do(ctx context.Context, request Request) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer httpResponse.Body.Close() //nolint:errcheck
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			logger.Logger().WithError(err).Warn("failed to close response body")
+		}
+	}(httpResponse.Body) //nolint:errcheck
 
 	body, err := io.ReadAll(httpResponse.Body)
 	if err != nil {

@@ -5,8 +5,8 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-func HeaderToMap(header any, keys ...string) map[string]string {
-	headers := map[string]string{}
+func HeaderToMap(header any, keys ...string) map[string]interface{} {
+	headers := map[string]interface{}{}
 
 	switch h := header.(type) {
 	case *fiber.Ctx:

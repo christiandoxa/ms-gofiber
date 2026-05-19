@@ -13,6 +13,7 @@ func Register(app *fiber.App, service *model.Service) {
 
 	router := &model.Router{
 		ExternalRouter: apiVersion.Group(pathkey.ExternalBasePath),
+		FlushRouter:    apiVersion.Group(pathkey.FlushBasePath),
 		TodoRouter:     apiVersion.Group(pathkey.TodoBasePath),
 	}
 
@@ -21,5 +22,6 @@ func Register(app *fiber.App, service *model.Service) {
 	})
 
 	externalRouter(router, service)
+	flushRouter(router, service)
 	todoRouter(router, service)
 }

@@ -117,6 +117,9 @@ func TestGenerateRequestReference(t *testing.T) {
 	if got := GenerateRequestReference(); got != "000000000042" {
 		t.Fatalf("unexpected request reference: %s", got)
 	}
+	if got := GenerateRequestRefnum(); got != "000000000042" {
+		t.Fatalf("unexpected request refnum: %s", got)
+	}
 
 	expectedErr := errors.New("random")
 	randomInt = func(io.Reader, *big.Int) (*big.Int, error) {

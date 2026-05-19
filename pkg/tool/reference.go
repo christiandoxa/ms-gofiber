@@ -19,3 +19,7 @@ func GenerateRequestReference() string {
 	}
 	return fmt.Sprintf("%012d", number)
 }
+
+func GenerateRequestRefnum() string {
+	return GenerateRequestReference()
+}
